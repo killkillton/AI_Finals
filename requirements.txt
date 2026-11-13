@@ -1,0 +1,2 @@
+pygame>=2.6,<3
+python-sat>=1.8.dev13

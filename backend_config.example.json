@@ -1,0 +1,5 @@
+{
+  "tank_module": "Task2.tank_game_engine",
+  "agents_module": "Task2.agents",
+  "kakuro_module": "Task3.kakuro_csp"
+}
