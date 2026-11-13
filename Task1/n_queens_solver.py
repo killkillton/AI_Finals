@@ -1,7 +1,7 @@
 import random
+import sys
 import time
-from typing import Dict, List, Tuple
-from pysat.solvers import Glucose3
+from typing import Dict, List, Mapping, Tuple
 
 
 class NQueenBoard:
@@ -54,9 +54,20 @@ class NQueenSolver:
     (Standard vs. Custom Heuristic Min-Conflicts).
     """
 
-    def __init__(self, n: int):
+    def __init__(self, n: int, fixed_queens: Mapping[int, int] | None = None):
         self.n = n
         self.board_helper = NQueenBoard(n)
+        self.fixed_queens = dict(fixed_queens or {})
+        for col, row in self.fixed_queens.items():
+            if type(col) is not int or type(row) is not int:
+                raise ValueError("Fixed queen positions must use integer row and column indexes.")
+            if not 0 <= col < n or not 0 <= row < n:
+                raise ValueError("Fixed queen positions must be inside the board.")
+        positions = list(self.fixed_queens.items())
+        for index, (col, row) in enumerate(positions):
+            for other_col, other_row in positions[index + 1:]:
+                if row == other_row or abs(row - other_row) == abs(col - other_col):
+                    raise ValueError("Fixed queens must not attack each other.")
 
     def generate_cnf_clauses(self) -> List[List[int]]:
         """
@@ -110,6 +121,9 @@ class NQueenSolver:
                     dr += 1
                     dc -= 1
 
+        clauses.extend(
+            [[self.board_helper.var_id(row, col)] for col, row in self.fixed_queens.items()]
+        )
         return clauses
 
     def solve_pysat(self) -> dict:
@@ -126,6 +140,10 @@ class NQueenSolver:
             "runtime_ms": float     # REQUIRED metric for Report Section 1.2
         }
         """
+        if "pysat" in sys.modules and sys.modules["pysat"] is None:
+            raise ModuleNotFoundError("No module named 'pysat'", name="pysat")
+        from pysat.solvers import Glucose3
+
         start_time = time.perf_counter()
         clauses = self.generate_cnf_clauses()
 
@@ -217,6 +235,13 @@ class NQueenSolver:
 
         if not use_custom_heuristic:
             for col in range(n):
+                if col in self.fixed_queens:
+                    row = self.fixed_queens[col]
+                    board[col] = row
+                    row_counts[row] += 1
+                    diag1_counts[row - col + n - 1] += 1
+                    diag2_counts[row + col] += 1
+                    continue
                 row = random.randrange(n)
                 board[col] = row
                 row_counts[row] += 1
@@ -224,6 +249,13 @@ class NQueenSolver:
                 diag2_counts[row + col] += 1
         else:
             for col in range(n):
+                if col in self.fixed_queens:
+                    row = self.fixed_queens[col]
+                    board[col] = row
+                    row_counts[row] += 1
+                    diag1_counts[row - col + n - 1] += 1
+                    diag2_counts[row + col] += 1
+                    continue
                 min_conf = n + 1
                 candidates = []
                 for row in range(n):
@@ -281,9 +313,30 @@ class NQueenSolver:
         )
         history: List[Tuple[int, int, List[int]]] = []
         last_col = -1
+        restarts = 0
+        # Periodic random restart interval to escape deep local minima on small/constrained boards
+        restart_interval = (
+            max(100, n * 15) if (self.fixed_queens or use_custom_heuristic) else max(300, n * 30)
+        )
         # Short tabu tenure for Custom Heuristic to escape strict local minima plateaus
         tabu_until = [0] * n
         tabu_tenure = max(1, min(4, n // 4))
+
+        if not any(
+            self._count_conflicts(board[col], col, board[col], row_counts, diag1_counts, diag2_counts)
+            for col in range(n)
+        ):
+            runtime_ms = (time.perf_counter() - start_time) * 1000.0
+            return {
+                "algorithm": algo_name,
+                "n": n,
+                "solved": True,
+                "board": board,
+                "steps": 0,
+                "runtime_ms": round(runtime_ms, 4),
+                "restarts": 0,
+                "history": history,
+            }
 
         for step in range(max_steps):
             # Gather all columns whose queen is currently under attack
@@ -298,7 +351,7 @@ class NQueenSolver:
                 )
                 if conf > 0:
                     conflicted_cols.append(col)
-                    if use_custom_heuristic and step >= tabu_until[col]:
+                    if col not in self.fixed_queens and use_custom_heuristic and step >= tabu_until[col]:
                         if conf > max_col_conf:
                             max_col_conf = conf
                             max_conf_cols = [col]
@@ -315,16 +368,34 @@ class NQueenSolver:
                     "board": board,
                     "steps": step,
                     "runtime_ms": round(runtime_ms, 4),
+                    "restarts": restarts,
                     "history": history,
                 }
 
+            # Random-restart Min-Conflicts when plateaued for restart_interval steps
+            if step > 0 and step % restart_interval == 0:
+                restarts += 1
+                board, row_counts, diag1_counts, diag2_counts = self._initialize_board(
+                    use_custom_heuristic
+                )
+                last_col = -1
+                tabu_until = [0] * n
+                if record_history:
+                    history.append((step + 1, -1, list(board)))
+                continue
+
+            # Filter movable conflicted columns (never move fixed queens)
+            movable_conflicted = [c for c in conflicted_cols if c not in self.fixed_queens]
+            if not movable_conflicted:
+                break
+
             # Variable selection: Standard picks randomly; Custom picks most-conflicted non-tabu variable
             if not use_custom_heuristic:
-                col = random.choice(conflicted_cols)
+                col = random.choice(movable_conflicted)
             else:
                 if not max_conf_cols:
-                    # Fallback if all conflicted columns are currently tabu
-                    candidates = [c for c in conflicted_cols if c != last_col] or conflicted_cols
+                    # Fallback if all movable conflicted columns are currently tabu
+                    candidates = [c for c in movable_conflicted if c != last_col] or movable_conflicted
                     col = random.choice(candidates)
                 else:
                     col = random.choice(max_conf_cols)
@@ -368,13 +439,19 @@ class NQueenSolver:
             if record_history:
                 history.append((step + 1, col, list(board)))
 
+        # Final conflict check after completing step budget
+        solved = not any(
+            self._count_conflicts(board[col], col, board[col], row_counts, diag1_counts, diag2_counts)
+            for col in range(n)
+        )
         runtime_ms = (time.perf_counter() - start_time) * 1000.0
         return {
             "algorithm": algo_name,
             "n": n,
-            "solved": False,
+            "solved": solved,
             "board": board,
             "steps": max_steps,
             "runtime_ms": round(runtime_ms, 4),
+            "restarts": restarts,
             "history": history,
         }

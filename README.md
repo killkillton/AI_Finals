@@ -29,10 +29,12 @@ Chọn task trên menu; bấm **Main menu** hoặc **Esc** trong task để quay
 - **Tank Battle:** đã có giao diện, chọn bot, nhập bot `.py`, HP xe/căn cứ và
   hiển thị từng lượt. P1: W/A/S/D di chuyển, F bắn, G đứng yên. P2: phím mũi
   tên di chuyển, K bắn, L đứng yên. Chờ nhóm thêm engine/AI để chơi thật.
-- **Kakuro:** đã có giao diện xem miền giá trị, gán số, lan truyền và quay lui;
-  hỗ trợ Play, Step, Quick solve và chỉnh tốc độ. Chờ nhóm thêm CSP/solver.
+- **Kakuro:** đã nối `KakuroCSP` (đọc bàn cờ từ file JSON trong `Task3/boards/`,
+  lan truyền ràng buộc AC-3 + Forward Checking và quay lui với MRV/Degree + LCV);
+  hiển thị trực quan miền giá trị, gán số, cắt tỉa và phát hiện mâu thuẫn (`CONFLICT`);
+  hỗ trợ Play, Step, Quick solve và chỉnh tốc độ.
 
-Khi chưa có code Task 2/3, hai màn hình đó hiển thị **PREVIEW**, không giả lập
+Khi chưa có code Task 2, màn hình đó hiển thị **PREVIEW**, không giả lập
 kết quả thuật toán.
 
 ## Cấu trúc
@@ -43,6 +45,7 @@ requirements.txt              # pygame, python-sat
 frontend/                     # Menu, giao diện, kết nối backend
 assets/                       # Hai ảnh cần cho giao diện
 Task1/                        # Solver, script benchmark, CSV
+Task3/                        # Kakuro CSP solver và các bàn cờ JSON (boards/)
 backend_config.example.json   # Mẫu chỉnh đường dẫn import
 tests/                       # Kiểm tra solver và giao diện
 ```
