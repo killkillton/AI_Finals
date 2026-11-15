@@ -1,0 +1,9 @@
+board_id,configuration,solved,valid,steps,assignments_tried,backtracks,prunings,elapsed_ms
+board_5x5,Backtracking + Forward Checking (Baseline - Static Order),True,True,4202,1054,1042,8162,21.567
+board_5x5,Backtracking + Forward Checking + MRV + Degree + LCV,True,True,43,14,2,40,1.279
+board_5x5,Backtracking + FC + AC-3 (No Ordering Heuristics),True,True,26,12,0,96,1.099
+board_5x5,Backtracking + FC + AC-3 + MRV + Degree + LCV (Full Solver),True,True,26,12,0,96,1.35
+board_10x10,Backtracking + Forward Checking (Baseline - Static Order),True,True,2390,613,565,5439,29.237
+board_10x10,Backtracking + Forward Checking + MRV + Degree + LCV,True,True,251,76,28,225,37.278
+board_10x10,Backtracking + FC + AC-3 (No Ordering Heuristics),True,True,98,48,0,384,29.331
+board_10x10,Backtracking + FC + AC-3 + MRV + Degree + LCV (Full Solver),True,True,98,48,0,384,32.723

@@ -7,10 +7,8 @@ from typing import Any, Deque, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 class KakuroConstraint:
     """
-    Represents a single Kakuro run constraint (either horizontal 'right' or vertical 'down').
-    Enforces two simultaneous rules over its ordered list of WHITE variable cells:
-    1. AllDiff: No two cells in the run may share the same digit (1..9).
-    2. Exact Sum: The sum of digits assigned to all cells in the run must equal target_sum.
+    One Kakuro run (horizontal 'right' or vertical 'down'). Its cells must hold
+    distinct digits that add up to target_sum.
     """
 
     def __init__(self, target_sum: int, cells: List[Tuple[int, int]], direction: str):
@@ -21,13 +19,9 @@ class KakuroConstraint:
 
 class KakuroCSP:
     """
-    Contract 3: Task 3 - Kakuro CSP (Tin & Ng <-> Nh).
-    Task 3A (Tin):
-    - General JSON Kakuro board parser supporting 'board_5x5', 'board_10x10', or any
-      custom JSON board file/dictionary.
-    - Models variables (WHITE cells), domains ({1..9}), and AllDiff + Sum constraints.
-    - Combines Forward Checking (FC) and Generalized AC-3 (Arc Consistency) constraint
-      propagation with MRV/Degree + LCV Backtracking Search.
+    Kakuro as a CSP: white cells are variables with domain 1..9, and every run has
+    an all-different and an exact-sum constraint. Solved with backtracking search,
+    forward checking, AC-3, and MRV/degree/LCV heuristics.
     """
 
     BOARDS_DIR = Path(__file__).resolve().parent / "boards"
@@ -68,7 +62,7 @@ class KakuroCSP:
 
     @classmethod
     def from_json(cls, source: Union[str, Path, Dict[str, Any]]) -> "KakuroCSP":
-        """Convenience factory to construct a KakuroCSP from any JSON file path or dict."""
+        """Builds a KakuroCSP from a JSON file path or a board dict."""
         if isinstance(source, dict):
             board_id = str(source.get("board_id", "custom_board"))
             return cls(board_id=board_id, board_data=source)
@@ -79,7 +73,7 @@ class KakuroCSP:
     def _resolve_board_path(
         cls, board_id: str, board_path: Optional[Union[str, Path]] = None
     ) -> Path:
-        """Resolves a board_id or explicit file path to a JSON board definition file."""
+        """Finds the JSON file for a board id or an explicit path."""
         if board_path is not None:
             path = Path(board_path)
             if not path.is_file():
@@ -101,7 +95,7 @@ class KakuroCSP:
 
     @staticmethod
     def load_board_json(path: Union[str, Path]) -> Dict[str, Any]:
-        """Reads and parses a JSON file describing a Kakuro board."""
+        """Reads a Kakuro board JSON file."""
         file_path = Path(path)
         with file_path.open("r", encoding="utf-8") as stream:
             data = json.load(stream)
@@ -113,7 +107,7 @@ class KakuroCSP:
     def _validate_clue_sums(
         r: int, c: int, down_sum: Optional[int], right_sum: Optional[int]
     ) -> Tuple[Optional[int], Optional[int]]:
-        """Validates that a CLUE cell defines at least one positive integer sum."""
+        """Checks that a clue cell has at least one positive sum."""
         if down_sum is None and right_sum is None:
             raise ValueError(f"CLUE cell at ({r}, {c}) must specify at least one sum.")
         if down_sum is not None and down_sum <= 0:
@@ -125,15 +119,8 @@ class KakuroCSP:
     @classmethod
     def _parse_cell_token(cls, r: int, c: int, token: Any) -> dict:
         """
-        Parses and validates a single cell representation from JSON into the Contract 3
-        cell dictionary.
-        Supported token formats:
-        - String shorthand:
-          - "#" or "B" or "BLOCK" -> BLOCK cell
-          - "W" or "." or "WHITE" -> WHITE variable cell
-          - "down/right" (e.g. "14/12", "21/-", "-/16") -> CLUE cell
-        - List/Tuple shorthand: ["B"], ["W"], or ["C", down_sum, right_sum]
-        - Dictionary format: {"type": "BLOCK"|"CLUE"|"WHITE", "down_sum": ..., "right_sum": ...}
+        Turns one JSON cell token into a cell dict. Accepts strings ("#", "W",
+        "down/right"), lists, and dicts.
         """
         if isinstance(token, str):
             text = token.strip()
@@ -198,11 +185,7 @@ class KakuroCSP:
 
     @classmethod
     def _parse_board_data(cls, data: Dict[str, Any]) -> Tuple[int, int, List[dict]]:
-        """
-        Parses and validates a JSON board dictionary supporting either:
-        1. A 2D 'grid' array of tokens, or
-        2. An explicit 'cells' list with 'rows' and 'cols'.
-        """
+        """Parses a board dict given either as a 2D 'grid' or as a 'cells' list."""
         if "grid" in data:
             grid = data["grid"]
             if not isinstance(grid, list) or not grid or not isinstance(grid[0], list):
@@ -256,10 +239,7 @@ class KakuroCSP:
         raise ValueError("Kakuro board JSON must contain either 'grid' or ('rows', 'cols', 'cells').")
 
     def _extract_constraints(self) -> None:
-        """
-        Scans all CLUE cells on the board and builds horizontal ('right') and
-        vertical ('down') KakuroConstraint objects over contiguous WHITE cells.
-        """
+        """Builds a constraint for each horizontal and vertical run of white cells."""
         cell_map = {(cell["r"], cell["c"]): cell for cell in self.cells}
 
         for cell in self.cells:
@@ -296,28 +276,14 @@ class KakuroCSP:
                         self.peers[var].update(other for other in run_cells if other != var)
 
     def get_board_layout(self) -> dict:
-        """
-        Called once by Nh's UI to draw the static Kakuro grid.
-        Returns:
-        {
-            "rows": int,
-            "cols": int,
-            "cells": [
-                {"r": int, "c": int, "type": "BLOCK"},
-                {"r": int, "c": int, "type": "CLUE", "down_sum": int|None, "right_sum": int|None},
-                {"r": int, "c": int, "type": "WHITE"}
-            ]
-        }
-        """
+        """Returns rows, cols and the list of cell dicts used to draw the grid."""
         return {
             "rows": self.rows,
             "cols": self.cols,
             "cells": [dict(cell) for cell in self.cells],
         }
 
-    # =========================================================================
-    # Task 3A: Constraint Propagation Module (Forward Checking & AC-3)
-    # =========================================================================
+    # ---- Constraint propagation ----
 
     @staticmethod
     def _has_valid_run_completion(
@@ -326,10 +292,7 @@ class KakuroCSP:
         used_values: Set[int],
         idx: int = 0,
     ) -> bool:
-        """
-        Checks whether there exists a valid assignment of distinct digits to the
-        remaining unassigned cells in a run that sums to 'target_remaining'.
-        """
+        """Checks if the open cells of a run can take distinct digits summing to the remainder."""
         remaining_count = len(unassigned_domains) - idx
         if remaining_count == 0:
             return target_remaining == 0
@@ -361,11 +324,7 @@ class KakuroCSP:
         assignments: Dict[Tuple[int, int], int],
         domains: Dict[Tuple[int, int], List[int]],
     ) -> bool:
-        """
-        Checks whether assigning 'target_cell = value' is supported by at least one
-        valid tuple of distinct values from the current domains of the other cells
-        in 'constraint'. Used by AC-3 to enforce full run-level arc consistency.
-        """
+        """Checks if target_cell = value can be completed using the other cells' domains."""
         used_values: Set[int] = {value}
         assigned_sum = value
         other_domains: List[List[int]] = []
@@ -399,14 +358,8 @@ class KakuroCSP:
         initial_constraints: Optional[List[KakuroConstraint]] = None,
     ) -> Tuple[bool, List[Tuple[int, int, List[int]]]]:
         """
-        Generalized AC-3 (Arc Consistency) propagation across Kakuro Sum + AllDiff constraints.
-        Uses a FIFO deque to iteratively prune unsupported values from unassigned variable
-        domains until a fixed point is reached or a domain wipeout occurs.
-
-        Returns:
-            (consistent, pruned_cells)
-            - consistent: False if any variable's domain becomes empty (wipeout), True otherwise.
-            - pruned_cells: list of (r, c, removed_values) for UI visualization.
+        AC-3 over run constraints: removes unsupported values until nothing changes.
+        Returns (consistent, pruned) where pruned is a list of (r, c, removed_values).
         """
         queue: Deque[KakuroConstraint] = deque(
             initial_constraints if initial_constraints is not None else self.constraints
@@ -462,17 +415,9 @@ class KakuroCSP:
         domains: Dict[Tuple[int, int], List[int]],
     ) -> Tuple[bool, List[Tuple[int, int, List[int]]]]:
         """
-        Performs lightweight Forward Checking (FC) on all unassigned peers sharing a
-        horizontal or vertical run with 'focus_cell' after assigning 'assigned_value':
-        1. AllDiff pruning: removes 'assigned_value' (and any already-assigned run values).
-        2. Direct arithmetic sum-bound pruning: removes peer values that cannot possibly
-           fit the remaining run sum given the number of unassigned cells left in the run.
-        Full multi-cell domain tuple checks are left to AC-3 (`propagate_ac3`).
-
-        Returns:
-            (consistent, pruned_cells)
-            - consistent: False if any neighbor's domain is wiped out, True otherwise.
-            - pruned_cells: list of (r, c, removed_values) for UI visualization.
+        Forward checking after assigning focus_cell: removes used digits and values that
+        break the run-sum bounds from the peers' domains.
+        Returns (consistent, pruned) where pruned is a list of (r, c, removed_values).
         """
         pruned_map: Dict[Tuple[int, int], List[int]] = {}
 
@@ -521,10 +466,7 @@ class KakuroCSP:
         return True, pruned_list
 
     def is_valid_solution(self, assignments: Dict[Tuple[int, int], int]) -> bool:
-        """
-        Verifies that all WHITE cells are assigned a digit in 1..9 and every
-        horizontal and vertical KakuroConstraint has distinct digits summing to target_sum.
-        """
+        """Checks that every white cell has a digit and every run is distinct with the right sum."""
         if set(assignments.keys()) != set(self.variables):
             return False
         if any(not (1 <= val <= 9) for val in assignments.values()):
@@ -539,58 +481,132 @@ class KakuroCSP:
 
         return True
 
-    # =========================================================================
-    # Task 3B Integration Hook: Step-by-Step Solver Generator (Contract 3)
-    # =========================================================================
+    # ---- Search ----
+
+    def _run_state(self, var, assignments, domains):
+        """Returns, per run of var, the unassigned peers, used digits and remaining sum."""
+        info = []
+        for constraint in self.cell_constraints[var]:
+            used = set()
+            assigned_sum = 0
+            open_cells = []
+            for cell in constraint.cells:
+                if cell == var:
+                    continue
+                if cell in assignments:
+                    used.add(assignments[cell])
+                    assigned_sum += assignments[cell]
+                else:
+                    open_cells.append(cell)
+            info.append((constraint, open_cells, used, constraint.target_sum - assigned_sum))
+        return info
 
     def _select_unassigned_variable(
         self,
         assignments: Dict[Tuple[int, int], int],
         domains: Dict[Tuple[int, int], List[int]],
+        use_mrv: bool = True,
+        use_degree: bool = True,
     ) -> Tuple[int, int]:
         """
-        Selects the next unassigned variable using Lecture 08 heuristics:
-        1. Minimum Remaining Values (MRV): smallest domain size first.
-        2. Degree Heuristic (tie-breaker): most unassigned peers first.
+        Picks the next variable: smallest domain first (MRV), then most unassigned
+        peers (degree), then tightest runs, then coordinate order. With both heuristics
+        off it simply takes the first unassigned cell in board order.
         """
         unassigned = [v for v in self.variables if v not in assignments]
-        return min(
-            unassigned,
-            key=lambda var: (
-                len(domains[var]),
-                -sum(1 for peer in self.peers[var] if peer not in assignments),
-                var,
-            ),
-        )
+        if not use_mrv and not use_degree:
+            return unassigned[0]
+
+        def run_tightness(var: Tuple[int, int]) -> Tuple[int, int]:
+            open_total = 0
+            sum_total = 0
+            for constraint in self.cell_constraints[var]:
+                rest = [c for c in constraint.cells if c not in assignments]
+                open_total += len(rest)
+                sum_total += constraint.target_sum - sum(
+                    assignments[c] for c in constraint.cells if c in assignments
+                )
+            return open_total, sum_total
+
+        def key(var: Tuple[int, int]):
+            parts = []
+            if use_mrv:
+                parts.append(len(domains[var]))
+            parts.append(-sum(1 for peer in self.peers[var] if peer not in assignments))
+            parts.extend(run_tightness(var))
+            parts.append(var)
+            return tuple(parts)
+
+        return min(unassigned, key=key)
 
     def _order_domain_values(
         self,
         var: Tuple[int, int],
         assignments: Dict[Tuple[int, int], int],
         domains: Dict[Tuple[int, int], List[int]],
+        use_lcv: bool = True,
     ) -> List[int]:
         """
-        Orders domain values for 'var' using the Least Constraining Value (LCV) heuristic:
-        prefers values that rule out the fewest values in neighboring unassigned cells.
+        Orders the values of var by least constraining value: counts the peer values
+        removed by all-different and by the run-sum bounds. Values that wipe out a
+        peer go last.
         """
-        if len(domains[var]) <= 1:
-            return list(domains[var])
+        if not use_lcv or len(domains[var]) <= 1:
+            return sorted(domains[var])
 
-        def conflict_impact(val: int) -> int:
+        legal = self._get_legal_run_values(var, assignments, domains)
+        if not legal:
+            return []
+
+        run_info = self._run_state(var, assignments, domains)
+
+        def impact(val: int) -> Tuple[int, int, int]:
             eliminated = 0
-            for peer in self.peers[var]:
-                if peer not in assignments and val in domains[peer]:
-                    eliminated += 1
-            return eliminated
+            wipeout = 0
+            for _, open_cells, used, remaining in run_info:
+                remaining_after = remaining - val
+                other_count = len(open_cells) - 1
+                min_other = other_count * (other_count + 1) // 2
+                max_other = other_count * (19 - other_count) // 2
+                for peer in open_cells:
+                    removed = 0
+                    for pv in domains[peer]:
+                        if (
+                            pv == val
+                            or pv in used
+                            or remaining_after - pv < min_other
+                            or remaining_after - pv > max_other
+                        ):
+                            removed += 1
+                    eliminated += removed
+                    if removed == len(domains[peer]):
+                        wipeout = 1
+            return wipeout, eliminated, val
 
-        return sorted(domains[var], key=lambda v: (conflict_impact(v), v))
+        return sorted(legal, key=impact)
+
+    def _get_legal_run_values(
+        self,
+        var: Tuple[int, int],
+        assignments: Dict[Tuple[int, int], int],
+        domains: Dict[Tuple[int, int], List[int]],
+    ) -> List[int]:
+        """Returns values in domains[var] that have a valid completion in each of var's runs."""
+        return [
+            val
+            for val in domains[var]
+            if all(
+                self.is_value_supported_in_constraint(c, var, val, assignments, domains)
+                for c in self.cell_constraints[var]
+            )
+        ]
 
     @staticmethod
     def _merge_pruned_lists(
         first: List[Tuple[int, int, List[int]]],
         second: List[Tuple[int, int, List[int]]],
     ) -> List[Tuple[int, int, List[int]]]:
-        """Merges two pruned_cells lists from Forward Checking and AC-3 without duplicates."""
+        """Merges the pruned lists of forward checking and AC-3 without duplicates."""
         merged: Dict[Tuple[int, int], Set[int]] = {}
         order: List[Tuple[int, int]] = []
         for source in (first, second):
@@ -602,10 +618,27 @@ class KakuroCSP:
                 merged[key].update(vals)
         return [(r, c, sorted(merged[(r, c)])) for r, c in order]
 
-    def solve_step_by_step(self) -> Iterator[dict]:
+    def _partial_ok(self, var: Tuple[int, int], assignments: Dict[Tuple[int, int], int]) -> bool:
+        """Plain check of var's runs: distinct digits, sum not exceeded, exact when full."""
+        for constraint in self.cell_constraints[var]:
+            vals = [assignments[c] for c in constraint.cells if c in assignments]
+            if len(set(vals)) != len(vals) or sum(vals) > constraint.target_sum:
+                return False
+            if len(vals) == len(constraint.cells) and sum(vals) != constraint.target_sum:
+                return False
+        return True
+
+    def solve_step_by_step(
+        self,
+        use_mrv: bool = True,
+        use_degree: bool = True,
+        use_lcv: bool = True,
+        use_ac3: bool = True,
+        use_fc: bool = True,
+    ) -> Iterator[dict]:
         """
-        Generator yielding a state event every time the solver acts.
-        Nh's UI calls `next(generator)` on a timer (Play) or button click (Step).
+        Generator that yields one event dict per solver action (SELECT_VAR, ASSIGN,
+        PROPAGATE, CONFLICT, BACKTRACK, SOLVED). The UI calls next() on it.
         """
         start_time = time.perf_counter()
         assignments: Dict[Tuple[int, int], int] = {}
@@ -613,6 +646,8 @@ class KakuroCSP:
             var: list(self.domains[var]) for var in self.variables
         }
         stats = {"steps": 0, "backtracks": 0, "prunings": 0, "elapsed_ms": 0.0}
+        self.last_run = {"solved": False, "assignments": {}, "assignments_tried": 0}
+        self.last_stats = stats
 
         def make_event(
             event_type: str,
@@ -635,53 +670,67 @@ class KakuroCSP:
                 "stats": dict(stats),
             }
 
-        # Step 1: Initial AC-3 Constraint Propagation before search
-        consistent, initial_pruned = self.propagate_ac3(assignments, domains)
-        if initial_pruned:
-            stats["steps"] += 1
-            stats["prunings"] += sum(len(vals) for _, _, vals in initial_pruned)
-            first_focus = (initial_pruned[0][0], initial_pruned[0][1])
-            yield make_event("PROPAGATE", first_focus, None, initial_pruned)
+        # Initial propagation before any search
+        consistent = True
+        if use_ac3:
+            consistent, initial_pruned = self.propagate_ac3(assignments, domains)
+            if initial_pruned:
+                stats["steps"] += 1
+                stats["prunings"] += sum(len(vals) for _, _, vals in initial_pruned)
+                first_focus = (initial_pruned[0][0], initial_pruned[0][1])
+                yield make_event("PROPAGATE", first_focus, None, initial_pruned)
+
+        elif use_mrv or use_lcv:
+            # Without AC-3, still cut each domain down to values that fit the run sums
+            for var in self.variables:
+                domains[var] = self._get_legal_run_values(var, {}, domains)
+                if not domains[var]:
+                    consistent = False
 
         if not consistent:
             stats["steps"] += 1
             yield make_event("CONFLICT", self.variables[0], None, [])
             return
 
-        # Step 2: Backtracking Search with Forward Checking (FC) followed by AC-3 (MAC)
         def backtrack() -> Iterator[Tuple[bool, dict]]:
             if len(assignments) == len(self.variables):
                 stats["steps"] += 1
                 last_cell = next(reversed(assignments)) if assignments else self.variables[0]
+                self.last_run["solved"] = True
+                self.last_run["assignments"] = dict(assignments)
                 yield True, make_event("SOLVED", last_cell, assignments.get(last_cell), [])
                 return
 
-            var = self._select_unassigned_variable(assignments, domains)
+            var = self._select_unassigned_variable(assignments, domains, use_mrv, use_degree)
             stats["steps"] += 1
             yield False, make_event("SELECT_VAR", var, None, [])
 
-            for val in self._order_domain_values(var, assignments, domains):
+            for val in self._order_domain_values(var, assignments, domains, use_lcv):
                 saved_domains = {v: list(domains[v]) for v in self.variables}
                 assignments[var] = val
                 domains[var] = [val]
+                self.last_run["assignments_tried"] += 1
 
                 stats["steps"] += 1
                 yield False, make_event("ASSIGN", var, val, [])
 
-                # Phase A: Lightweight Forward Checking on immediate peers in var's runs
-                ok, fc_pruned = self.forward_check(var, val, assignments, domains)
+                ok = True
+                fc_pruned: List[Tuple[int, int, List[int]]] = []
+                pruned: List[Tuple[int, int, List[int]]] = []
+                if use_fc:
+                    ok, fc_pruned = self.forward_check(var, val, assignments, domains)
+                else:
+                    ok = self._partial_ok(var, assignments)
                 pruned = list(fc_pruned)
 
-                # Phase B: Full AC-3 run-support propagation starting from var's runs
-                # and any intersecting runs of peers narrowed by Forward Checking
-                if ok:
-                    ac3_seeds: List[KakuroConstraint] = list(self.cell_constraints[var])
+                if ok and use_ac3:
+                    seeds: List[KakuroConstraint] = list(self.cell_constraints[var])
                     for r_p, c_p, _ in fc_pruned:
-                        for neighbor_c in self.cell_constraints[(r_p, c_p)]:
-                            if neighbor_c not in ac3_seeds:
-                                ac3_seeds.append(neighbor_c)
+                        for neighbor in self.cell_constraints[(r_p, c_p)]:
+                            if neighbor not in seeds:
+                                seeds.append(neighbor)
                     ok, ac3_pruned = self.propagate_ac3(
-                        assignments, domains, initial_constraints=ac3_seeds
+                        assignments, domains, initial_constraints=seeds
                     )
                     pruned = self._merge_pruned_lists(fc_pruned, ac3_pruned)
 
@@ -703,7 +752,6 @@ class KakuroCSP:
                     stats["steps"] += 1
                     yield False, make_event("CONFLICT", var, val, pruned)
 
-                # Undo assignment and restore domains on backtrack
                 del assignments[var]
                 for v in self.variables:
                     domains[v] = list(saved_domains[v])
@@ -715,3 +763,28 @@ class KakuroCSP:
             yield event
             if is_solved:
                 return
+
+    def solve(
+        self,
+        use_mrv: bool = True,
+        use_degree: bool = True,
+        use_lcv: bool = True,
+        use_ac3: bool = True,
+        use_fc: bool = True,
+    ) -> dict:
+        """Runs the solver to the end and returns the result and search statistics."""
+        start = time.perf_counter()
+        for _ in self.solve_step_by_step(use_mrv, use_degree, use_lcv, use_ac3, use_fc):
+            pass
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        stats = self.last_stats
+        return {
+            "board_id": self.board_id,
+            "solved": self.last_run["solved"],
+            "assignments": dict(self.last_run["assignments"]),
+            "steps": stats["steps"],
+            "assignments_tried": self.last_run["assignments_tried"],
+            "backtracks": stats["backtracks"],
+            "prunings": stats["prunings"],
+            "elapsed_ms": elapsed_ms,
+        }
