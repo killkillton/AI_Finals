@@ -1,0 +1,17 @@
+scenario,depth,algorithm,execution_time_ms,explored_states,pruned_branches,pruning_rate_pct,tt_hits,selected_action,best_score
+standard_arena,3,Minimax Search,2.205,92,0,0.0,0,MOVE_UP,0.4
+standard_arena,3,Alpha-Beta Search,1.0951,32,6,15.79,0,MOVE_UP,0.4
+standard_arena,3,Heuristic Minimax Search,5.0014,92,0,0.0,0,MOVE_UP,5.8
+standard_arena,3,Heuristic Minimax Search with Alpha-Beta Pruning,2.072,33,6,15.38,5,MOVE_UP,5.8
+open_duel,3,Minimax Search,5.0095,258,0,0.0,0,MOVE_RIGHT,0.4
+open_duel,3,Alpha-Beta Search,2.395,87,12,12.12,0,MOVE_RIGHT,0.4
+open_duel,3,Heuristic Minimax Search,8.3999,258,0,0.0,0,MOVE_RIGHT,4.5
+open_duel,3,Heuristic Minimax Search with Alpha-Beta Pruning,3.6547,88,11,11.11,5,MOVE_RIGHT,4.5
+base_siege,3,Minimax Search,3.6143,258,0,0.0,0,MOVE_UP,1103.2
+base_siege,3,Alpha-Beta Search,3.5921,86,11,11.34,0,MOVE_UP,1103.2
+base_siege,3,Heuristic Minimax Search,15.1729,258,0,0.0,0,FIRE,1417.88
+base_siege,3,Heuristic Minimax Search with Alpha-Beta Pruning,3.5389,90,12,11.76,2,FIRE,1417.88
+corridor_skirmish,3,Minimax Search,1.9117,84,0,0.0,0,FIRE,0.0
+corridor_skirmish,3,Alpha-Beta Search,2.7778,42,10,19.23,0,FIRE,0.0
+corridor_skirmish,3,Heuristic Minimax Search,6.8648,84,0,0.0,0,FIRE,1.8
+corridor_skirmish,3,Heuristic Minimax Search with Alpha-Beta Pruning,1.5055,30,6,16.67,5,FIRE,1.8
