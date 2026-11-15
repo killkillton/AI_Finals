@@ -195,7 +195,8 @@ def play_match(
         engine.step(a1, a2, record_frames=False)
 
     state = engine.get_state()
-    winner = state["winner"]
+    raw_winner = state["winner"]
+    winner: Any = raw_winner if raw_winner in (1, 2) else "Draw"
     if winner == 1:
         winner_algo = agent1.ALGORITHM_NAME
     elif winner == 2:
@@ -648,8 +649,9 @@ def build_executed_notebook(
 
     sim_engine = TankGameEngine()
     after_shot, sub_ticks = sim_engine.step("FIRE", "STAY")
-    wall_2_7_hp = next(
-        (w["hp"] for w in after_shot["walls"] if w["x"] == 2 and w["y"] == 7), 0
+    after_shot_2, _ = sim_engine.step("STAY", "STAY")
+    wall_2_6_hp = next(
+        (w["hp"] for w in after_shot_2["walls"] if w["x"] == 2 and w["y"] == 6), 0
     )
     cell1_stdout = (
         f"Initial Grid Size: {init_state['grid_size']}\n"
@@ -659,7 +661,8 @@ def build_executed_notebook(
         f"Bullet Sub-Tick Trajectory on FIRE from (2, 10) facing UP:\n"
         f"  Sub-tick 1 bullet pos: ({sub_ticks[0]['bullets'][0]['x']}, {sub_ticks[0]['bullets'][0]['y']})\n"
         f"  Sub-tick 2 bullet pos: ({sub_ticks[1]['bullets'][0]['x']}, {sub_ticks[1]['bullets'][0]['y']})\n"
-        f"  Sub-tick 3 impact: struck wall at (2, 7), reducing wall HP to {wall_2_7_hp} (remaining active bullets: {len(after_shot['bullets'])})\n"
+        f"  Sub-tick 3 bullet pos: ({after_shot['bullets'][0]['x']}, {after_shot['bullets'][0]['y']}) (in flight, remaining active bullets: {len(after_shot['bullets'])})\n"
+        f"  Cycle 2 Sub-tick 1 impact: struck wall at (2, 6), reducing wall HP from 3 to {wall_2_6_hp} (remaining active bullets: {len(after_shot_2['bullets'])})\n"
         f"Engine Clone Throughput: ~{clone_rate:,} clones/second"
     )
 
@@ -738,6 +741,42 @@ def build_executed_notebook(
     mm_sum = sum_map["Minimax Search"]
     ab_sum = sum_map["Alpha-Beta Search"]
 
+    heuristic_algos = {
+        "Heuristic Minimax Search",
+        "Heuristic Minimax Search with Alpha-Beta Pruning",
+    }
+    baseline_algos = {"Minimax Search", "Alpha-Beta Search"}
+
+    h_vs_b_matches = 0
+    h_vs_b_wins = 0
+    h_vs_b_losses = 0
+    for m in match_rows:
+        p1, p2, w = m["p1_algorithm"], m["p2_algorithm"], m["winner"]
+        if p1 in heuristic_algos and p2 in baseline_algos:
+            h_vs_b_matches += 1
+            if w == 1:
+                h_vs_b_wins += 1
+            elif w == 2:
+                h_vs_b_losses += 1
+        elif p2 in heuristic_algos and p1 in baseline_algos:
+            h_vs_b_matches += 1
+            if w == 2:
+                h_vs_b_wins += 1
+            elif w == 1:
+                h_vs_b_losses += 1
+    h_vs_b_draws = h_vs_b_matches - h_vs_b_wins - h_vs_b_losses
+
+    hab_draws = sum(
+        1
+        for m in match_rows
+        if (
+            m["p1_algorithm"] == "Heuristic Minimax Search with Alpha-Beta Pruning"
+            or m["p2_algorithm"] == "Heuristic Minimax Search with Alpha-Beta Pruning"
+        )
+        and m["winner"] == "Draw"
+    )
+    hab_losses = hab_sum["matches_played"] - hab_sum["wins"] - hab_draws
+
     md_summary_table = (
         "| Configuration | Matches | Wins | Win Rate (%) | Avg Tank HP (/6) | Avg Base HP (/9) | Avg Time/Turn (ms) | Avg States/Turn |\n"
         "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n"
@@ -765,10 +804,15 @@ def build_executed_notebook(
         depth=3,
         max_turns=60,
     )
+    ext_winner_label = (
+        f"Player {ext_match['winner']} ({ext_match['winner_algorithm']})"
+        if ext_match["winner"] in (1, 2)
+        else "Draw (Mutual / Turn Limit)"
+    )
     cell4_stdout = (
         f"Loaded External Bot Classes from {ext_path.name}: {list(loaded_classes.keys())}\n"
         f"Simulated Match: P1 ({ext_match['p1_algorithm']}) vs P2 ({ext_match['p2_algorithm']})\n"
-        f"Outcome: Winner = Player {ext_match['winner']} ({ext_match['winner_algorithm']}) in {ext_match['turns_played']} turns\n"
+        f"Outcome: Winner = {ext_winner_label} in {ext_match['turns_played']} turns\n"
         f"Remaining HP: P1 Tank={ext_match['p1_remaining_tank_hp']}/6, Base={ext_match['p1_remaining_base_hp']}/9 | "
         f"P2 Tank={ext_match['p2_remaining_tank_hp']}/6, Base={ext_match['p2_remaining_base_hp']}/9\n"
         f"Average Decision Time: P1={ext_match['p1_avg_time_ms']:.4f} ms ({ext_match['p1_avg_explored_states']} states) | "
@@ -827,10 +871,10 @@ Following Lecture 07 (Slides 14 & 27-29), because the full game tree has branchi
 1. **Basic Material Payoff (`evaluate_basic` for `MinimaxAgent` and `AlphaBetaAgent` -- Slides 9-26):**
 $$\\text{{EVAL}}_{{\\text{{basic}}}}(s, p) = 300(hp_p - hp_q) + 220(bhp_p - bhp_q) + \\Phi_{{\\text{{pos}}}}(s, p) - \\Phi_{{\\text{{pos}}}}(s, q)$$
 2. **Tactical Multi-Feature Heuristic (`evaluate_tactical` / `EVAL(s)` for `HeuristicMinimaxAgent` and `HeuristicAlphaBetaAgent` -- Slides 27-29):**
-$$\\text{{EVAL}}(s, p) = 320(hp_p - hp_q) + 240(bhp_p - bhp_q) + \\Phi_{{\\text{{bullets}}}}(s, p) - \\Phi_{{\\text{{bullets}}}}(s, q) + \\Phi_{{\\text{{align}}}}(s, p) - \\Phi_{{\\text{{align}}}}(s, q) + 2(\\text{{Mob}}(s, p) - \\text{{Mob}}(s, q)) + \\Phi_{{\\text{{def}}}}(s, p) - \\Phi_{{\\text{{def}}}}(s, q)$$
+$$\\text{{EVAL}}(s, p) = 420(hp_p - hp_q) + 280(bhp_p - bhp_q) + \\Phi_{{\\text{{bullets}}}}(s, p) - \\Phi_{{\\text{{bullets}}}}(s, q) + \\Phi_{{\\text{{align}}}}(s, p) - \\Phi_{{\\text{{align}}}}(s, q) + 2(\\text{{Mob}}(s, p) - \\text{{Mob}}(s, q)) + \\Phi_{{\\text{{def}}}}(s, p) - \\Phi_{{\\text{{def}}}}(s, q)$$
 where:
-- **Material Dominance ($w_{{\\text{{tank}}}} = 320, w_{{\\text{{base}}}} = 240$):** Preserving tank and base health strictly dominates positional sub-terms while obeying $\\text{{Lose}} < \\text{{EVAL}}(s) < \\text{{Win}}$ (Lecture 07, Slide 27).
-- **3-Cell Projectile Threat & Evasion ($\\Phi_{{\\text{{bullets}}}}$):** Projects all active bullets in 3-cell cycle increments, rewarding 1-cycle offensive tank hits ($+320$, or $-320$ when an enemy bullet is 1 cycle from striking player $p$'s tank) to trigger immediate dodging, rewarding wall-breach shots ($+36$), and penalizing friendly base wall shots ($-60$).
+- **Material Dominance ($w_{{\\text{{tank}}}} = 420, w_{{\\text{{base}}}} = 280$):** Preserving tank and base health strictly dominates positional sub-terms while obeying $\\text{{Lose}} < \\text{{EVAL}}(s) < \\text{{Win}}$ (Lecture 07, Slide 27).
+- **3-Cell Projectile Threat & Evasion ($\\Phi_{{\\text{{bullets}}}}$):** Projects all active bullets in 3-cell cycle increments, rewarding 1-cycle offensive tank hits ($+180$, or $-180$ when an enemy bullet is 1 cycle from striking player $p$'s tank) and 1-cycle enemy base hits ($+150$), rewarding wall-breach shots ($+10$), and penalizing friendly base shield wall shots ($-60$).
 - **Obstacle-Aware Routing, Line-of-Sight, & Base Shield Preservation ($\\Phi_{{\\text{{align}}}}$):** Preserves friendly base shield walls ($+14 \\times whp$), prioritizes line-of-sight alignment with the enemy tank ($1.85 \\times v_{{\\text{{tank}}}}$) and enemy base ($1.20 \\times v_{{\\text{{base}}}}$), and minimizes wall-aware shortest-path cost ($4.2 \\times \\text{{cost}}_{{\\text{{tank}}}} + 1.8 \\times \\text{{cost}}_{{\\text{{base}}}}$)."""
         ),
         code_cell(
@@ -855,7 +899,8 @@ clone_rate = int(5000 / max(1e-6, time.perf_counter() - t0))
 
 sim_engine = TankGameEngine()
 after_shot, sub_ticks = sim_engine.step(Action.FIRE, Action.STAY)
-wall_2_7_hp = next((w["hp"] for w in after_shot["walls"] if w["x"] == 2 and w["y"] == 7), 0)
+after_shot_2, _ = sim_engine.step(Action.STAY, Action.STAY)
+wall_2_6_hp = next((w["hp"] for w in after_shot_2["walls"] if w["x"] == 2 and w["y"] == 6), 0)
 
 print(f"Initial Grid Size: {init_state['grid_size']}")
 print(f"Player 1 Tank: {init_state['tanks'][1]} | Base: {init_state['bases'][1]}")
@@ -864,7 +909,8 @@ print(f"Initial Destructible Walls: {len(init_state['walls'])} walls (HP=3 each)
 print("Bullet Sub-Tick Trajectory on FIRE from (2, 10) facing UP:")
 print(f"  Sub-tick 1 bullet pos: ({sub_ticks[0]['bullets'][0]['x']}, {sub_ticks[0]['bullets'][0]['y']})")
 print(f"  Sub-tick 2 bullet pos: ({sub_ticks[1]['bullets'][0]['x']}, {sub_ticks[1]['bullets'][0]['y']})")
-print(f"  Sub-tick 3 impact: struck wall at (2, 7), reducing wall HP to {wall_2_7_hp} (remaining active bullets: {len(after_shot['bullets'])})")
+print(f"  Sub-tick 3 bullet pos: ({after_shot['bullets'][0]['x']}, {after_shot['bullets'][0]['y']}) (in flight, remaining active bullets: {len(after_shot['bullets'])})")
+print(f"  Cycle 2 Sub-tick 1 impact: struck wall at (2, 6), reducing wall HP from 3 to {wall_2_6_hp} (remaining active bullets: {len(after_shot_2['bullets'])})")
 print(f"Engine Clone Throughput: ~{clone_rate:,} clones/second")""",
             [stream_output(cell1_stdout)],
         ),
@@ -922,7 +968,7 @@ display(Image(filename=str(RESULTS_DIR / "tournament_win_rates_and_hp.png")))"""
 
 1. **Exact Optimality Preservation (Lecture 07, Slide 25 Invariant):** Across all 4 tactical scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and all search depths ($d \\in \\{{1, 2, 3, 4\\}}$), `AlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `MinimaxAgent`, and `HeuristicAlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `HeuristicMinimaxAgent`. Consequently, in the symmetric double round-robin tournament, `Minimax Search` and `Alpha-Beta Search` achieve identical win rates ({mm_sum['win_rate_pct']:.2f}% vs {ab_sum['win_rate_pct']:.2f}%) and remaining HP ({mm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {mm_sum['avg_remaining_base_hp']:.2f}/9 Base), and `Heuristic Minimax Search` and `Heuristic Minimax Search with Alpha-Beta Pruning` achieve identical win rates ({hmm_sum['win_rate_pct']:.2f}% vs {hab_sum['win_rate_pct']:.2f}%) and remaining HP ({hmm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {hmm_sum['avg_remaining_base_hp']:.2f}/9 Base).
 2. **Computational Speedup, Move Ordering, & Transposition Table Caching:** At depth $d = 4$ on `standard_arena`, unpruned `HeuristicMinimaxAgent` explores ${d4_hmm_std['explored_states']:,}$ states (${d4_hmm_std['execution_time_ms']:.2f}\\text{{ ms}}$), whereas `HeuristicAlphaBetaAgent` prunes **${d4_hab_std['pruning_rate_pct']:.2f}\\%$** of the search tree (${d4_hab_open['pruning_rate_pct']:.2f}\\%$ on `open_duel`) with ${d4_hab_std['tt_hits']}$ genuine Transposition Table hits, exploring only ${d4_hab_std['explored_states']}$ states in **${d4_hab_std['execution_time_ms']:.2f}\\text{{ ms}}$** and reducing average tournament turn time from ${hmm_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$ to **${hab_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$**.
-3. **Tactical Superiority in Head-to-Head Combat:** Across all 4 scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and both P1/P2 sides, the tactical heuristic agents (`HeuristicAlphaBetaAgent` and `HeuristicMinimaxAgent`) defeat the baseline agents in head-to-head combat while navigating the {len(init_state['walls'])}-wall Battle City arena without stalling.
+3. **Tactical Superiority in Head-to-Head Combat:** Across all 4 scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and both P1/P2 sides, the tactical heuristic agents (`HeuristicAlphaBetaAgent` and `HeuristicMinimaxAgent`) defeat the baseline agents in **{h_vs_b_wins}/{h_vs_b_matches}** head-to-head matches ({h_vs_b_draws} draws, {h_vs_b_losses} losses to baseline agents) while navigating the {len(init_state['walls'])}-wall Battle City arena without stalling. Overall across all {hab_sum['matches_played']} tournament matches (including mirror/sibling matchups), each heuristic configuration records **{hab_sum['wins']} wins, {hab_draws} draws, and {hab_losses} losses** (**{hab_sum['win_rate_pct']:.2f}%** win rate), compared to **{mm_sum['wins']} wins** (**{mm_sum['win_rate_pct']:.2f}%** win rate) for the baseline configurations.
 
 ---
 ## 3. PyGame GUI Integration & External Student Group Bot Loader (Requirement 3)
@@ -945,10 +991,15 @@ ext_cls = loaded_classes["ExternalGroupBot"]
 ext_match = play_match(
     HeuristicAlphaBetaAgent, ext_cls, scenario_name="standard_arena", depth=3, max_turns=60
 )
+ext_winner_label = (
+    f"Player {ext_match['winner']} ({ext_match['winner_algorithm']})"
+    if ext_match["winner"] in (1, 2)
+    else "Draw (Mutual / Turn Limit)"
+)
 
 print(f"Loaded External Bot Classes from {ext_path.name}: {list(loaded_classes.keys())}")
 print(f"Simulated Match: P1 ({ext_match['p1_algorithm']}) vs P2 ({ext_match['p2_algorithm']})")
-print(f"Outcome: Winner = Player {ext_match['winner']} ({ext_match['winner_algorithm']}) in {ext_match['turns_played']} turns")
+print(f"Outcome: Winner = {ext_winner_label} in {ext_match['turns_played']} turns")
 print(
     f"Remaining HP: P1 Tank={ext_match['p1_remaining_tank_hp']}/6, Base={ext_match['p1_remaining_base_hp']}/9 | "
     f"P2 Tank={ext_match['p2_remaining_tank_hp']}/6, Base={ext_match['p2_remaining_base_hp']}/9"

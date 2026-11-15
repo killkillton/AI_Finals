@@ -67,11 +67,32 @@ ALL_ACTIONS: Tuple[Action, ...] = (
 CANONICAL_ACTION_RANK: Dict[Action, int] = {
     Action.FIRE: 6,
     Action.MOVE_UP: 5,
-    Action.MOVE_DOWN: 4,
+    Action.MOVE_RIGHT: 4,
     Action.MOVE_LEFT: 3,
-    Action.MOVE_RIGHT: 2,
+    Action.MOVE_DOWN: 2,
     Action.STAY: 1,
 }
+
+CANONICAL_ACTION_RANK_P2: Dict[Action, int] = {
+    Action.FIRE: 6,
+    Action.MOVE_DOWN: 5,
+    Action.MOVE_LEFT: 4,
+    Action.MOVE_RIGHT: 3,
+    Action.MOVE_UP: 2,
+    Action.STAY: 1,
+}
+
+
+def canonical_action_rank(player_id: int, action: Action) -> int:
+    """
+    Return the player-symmetric canonical tie-break rank for `action`.
+    Player 2's movement priority is the exact 180-degree rotational mirror
+    of Player 1's (MOVE_UP <-> MOVE_DOWN, MOVE_RIGHT <-> MOVE_LEFT), ensuring
+    zero directional tie-breaking bias between P1 and P2 on symmetric maps.
+    """
+    if player_id == 2:
+        return CANONICAL_ACTION_RANK_P2.get(action, 0)
+    return CANONICAL_ACTION_RANK.get(action, 0)
 
 DIR_DELTAS: Dict[Direction, Tuple[int, int]] = {
     Direction.UP: (0, -1),
@@ -341,7 +362,7 @@ class TankGameEngine:
         self, action_p1: Action | str, action_p2: Action | str
     ) -> "TankGameEngine":
         """RESULT(s, a): Return the successor state without mutating `self`."""
-        return self.simulate_Action(action_p1, action_p2)
+        return self.simulate_action(action_p1, action_p2)
 
     def terminal_test(self) -> bool:
         """TERMINAL-TEST(s): Return True if the game has ended."""
@@ -374,12 +395,22 @@ class TankGameEngine:
             (self.bases[2]["x"], self.bases[2]["y"]),
         }
 
-        for act in (
-            Action.MOVE_UP,
-            Action.MOVE_DOWN,
-            Action.MOVE_LEFT,
-            Action.MOVE_RIGHT,
-        ):
+        move_order = (
+            (
+                Action.MOVE_UP,
+                Action.MOVE_RIGHT,
+                Action.MOVE_LEFT,
+                Action.MOVE_DOWN,
+            )
+            if player_id == 1
+            else (
+                Action.MOVE_DOWN,
+                Action.MOVE_LEFT,
+                Action.MOVE_RIGHT,
+                Action.MOVE_UP,
+            )
+        )
+        for act in move_order:
             d = ACTION_TO_DIR[act]
             dx, dy = DIR_DELTAS[d]
             nx, ny = tx + dx, ty + dy
@@ -602,7 +633,7 @@ class TankGameEngine:
             elif self.bases[2]["hp"] > self.bases[1]["hp"]:
                 self.winner = 2
             else:
-                self.winner = None
+                self.winner = "Draw"
             return
 
         if self.turn >= self.max_turns:
@@ -614,9 +645,9 @@ class TankGameEngine:
             elif p2_score > p1_score:
                 self.winner = 2
             else:
-                self.winner = None
+                self.winner = "Draw"
 
-    def simulate_Action(
+    def simulate_action(
         self, action_p1: Action | str, action_p2: Action | str
     ) -> "TankGameEngine":
         """Return a new TankGameEngine after advancing one cycle without frame recording."""
@@ -695,16 +726,18 @@ def create_scenario(scenario_name: str = "standard_arena") -> TankGameEngine:
                 "grid_size": (13, 13),
                 "tanks": {
                     1: {"x": 6, "y": 5, "dir": "UP", "hp": 5, "alive": True},
-                    2: {"x": 10, "y": 4, "dir": "LEFT", "hp": 5, "alive": True},
+                    2: {"x": 6, "y": 7, "dir": "DOWN", "hp": 5, "alive": True},
                 },
                 "bases": {
-                    1: {"x": 6, "y": 12, "hp": 8, "alive": True},
+                    1: {"x": 6, "y": 12, "hp": 3, "alive": True},
                     2: {"x": 6, "y": 0, "hp": 3, "alive": True},
                 },
                 "walls": [
                     {"x": 6, "y": 1, "hp": 1},
+                    {"x": 5, "y": 1, "hp": 3},
+                    {"x": 7, "y": 1, "hp": 3},
+                    {"x": 6, "y": 11, "hp": 1},
                     {"x": 5, "y": 11, "hp": 3},
-                    {"x": 6, "y": 11, "hp": 3},
                     {"x": 7, "y": 11, "hp": 3},
                 ],
                 "bullets": [],
@@ -714,25 +747,29 @@ def create_scenario(scenario_name: str = "standard_arena") -> TankGameEngine:
         )
 
     if name == "corridor_skirmish":
-        walls = (
-            [{"x": 2, "y": y, "hp": 3} for y in range(2, 10)]
-            + [{"x": 4, "y": y, "hp": 3} for y in range(2, 10)]
-            + [
-                {"x": 5, "y": 11, "hp": 3},
-                {"x": 6, "y": 11, "hp": 3},
-                {"x": 7, "y": 11, "hp": 3},
-                {"x": 5, "y": 1, "hp": 3},
-                {"x": 6, "y": 1, "hp": 3},
-                {"x": 7, "y": 1, "hp": 3},
-            ]
-        )
+        walls = [
+            {"x": 2, "y": 4, "hp": 3},
+            {"x": 2, "y": 8, "hp": 3},
+            {"x": 4, "y": 5, "hp": 3},
+            {"x": 4, "y": 7, "hp": 3},
+            {"x": 5, "y": 12, "hp": 3},
+            {"x": 5, "y": 11, "hp": 3},
+            {"x": 6, "y": 11, "hp": 3},
+            {"x": 7, "y": 11, "hp": 3},
+            {"x": 7, "y": 12, "hp": 3},
+            {"x": 5, "y": 0, "hp": 3},
+            {"x": 5, "y": 1, "hp": 3},
+            {"x": 6, "y": 1, "hp": 3},
+            {"x": 7, "y": 1, "hp": 3},
+            {"x": 7, "y": 0, "hp": 3},
+        ]
         return TankGameEngine(
             initial_state={
                 "turn": 6,
                 "grid_size": (13, 13),
                 "tanks": {
-                    1: {"x": 3, "y": 8, "dir": "UP", "hp": 5, "alive": True},
-                    2: {"x": 3, "y": 3, "dir": "DOWN", "hp": 5, "alive": True},
+                    1: {"x": 3, "y": 8, "dir": "UP", "hp": 4, "alive": True},
+                    2: {"x": 3, "y": 4, "dir": "DOWN", "hp": 4, "alive": True},
                 },
                 "bases": {
                     1: {"x": 6, "y": 12, "hp": 9, "alive": True},

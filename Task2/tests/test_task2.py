@@ -328,7 +328,9 @@ class Task2EngineAndSearchTests(unittest.TestCase):
                 self.assertEqual(met_hmm["best_score"], met_hab["best_score"])
                 self.assertEqual(act_hmm, act_hab)
                 self.assertLess(met_hab["explored_states"], met_hmm["explored_states"])
-                self.assertGreater(met_hab["pruning_rate"], 0.0)
+                self.assertLess(met_hab["explored_states"], met_ab["explored_states"])
+                self.assertGreater(met_hab["pruning_rate"], met_ab["pruning_rate"])
+                self.assertGreater(met_hab["pruning_rate"], 50.0)
                 self.assertGreater(met_hab["tt_hits"], 0)
 
     def test_no_stuttering_penalty_when_firing_at_target(self):
@@ -432,9 +434,30 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertFalse(state["tanks"][2]["alive"])
 
     def test_depth3_minimax_and_alphabeta_fire_when_aligned(self):
-        # When aligned on a clear corridor at distance 5 (beyond 1-cycle 3-cell bullet travel),
+        # When aligned on a clear 1-cell-wide corridor at distance 4 (beyond 1-cycle 3-cell bullet travel),
         # depth-3 MinimaxAgent and AlphaBetaAgent must actively choose FIRE rather than walking passively.
-        engine = create_scenario("corridor_skirmish")
+        walls = (
+            [{"x": 2, "y": y, "hp": 3} for y in range(2, 11)]
+            + [{"x": 4, "y": y, "hp": 3} for y in range(2, 11)]
+        )
+        engine = TankGameEngine(
+            initial_state={
+                "turn": 6,
+                "grid_size": (13, 13),
+                "tanks": {
+                    1: {"x": 3, "y": 8, "dir": "UP", "hp": 4, "alive": True},
+                    2: {"x": 3, "y": 4, "dir": "DOWN", "hp": 4, "alive": True},
+                },
+                "bases": {
+                    1: {"x": 6, "y": 12, "hp": 9, "alive": True},
+                    2: {"x": 6, "y": 0, "hp": 9, "alive": True},
+                },
+                "walls": walls,
+                "bullets": [],
+                "is_terminal": False,
+                "winner": None,
+            }
+        )
         for pid in (1, 2):
             mm = MinimaxAgent(player_id=pid, max_depth=3)
             ab = AlphaBetaAgent(player_id=pid, max_depth=3)
@@ -469,6 +492,10 @@ class Task2EngineAndSearchTests(unittest.TestCase):
             "Slide 33",
             "Contract 2",
             "LEGACY_PREVIEW_WALL_COORDS",
+            "simulate_Action",
+            "facing_Bonus",
+            "killer_Action",
+            "Player None",
             "\u2014",
             "\u2013",
             "\u2212",

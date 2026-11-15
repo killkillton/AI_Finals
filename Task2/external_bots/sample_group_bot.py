@@ -4,7 +4,7 @@ import time
 from typing import Any, Dict, Tuple
 
 from Task2.agents import BaseTankAgent, _apply_joint_step
-from Task2.heuristics import evaluate_tactical, order_actions
+from Task2.heuristics import evaluate_basic
 from Task2.tank_game_engine import Action, TankGameEngine
 
 
@@ -12,7 +12,7 @@ class ExternalGroupBot(BaseTankAgent):
     """
     Reference external student group bot implementation demonstrating dynamic
     bot loading via the PyGame interface or importlib loader.
-    Uses a greedy 2-ply lookahead with tactical evaluation and bullet evasion.
+    Uses a greedy 2-ply lookahead with basic material and approach evaluation.
     """
 
     ALGORITHM_NAME = "External Group Bot"
@@ -20,16 +20,8 @@ class ExternalGroupBot(BaseTankAgent):
     def get_action(self, engine_copy: TankGameEngine) -> Tuple[Action, Dict[str, Any]]:
         start = time.perf_counter()
         explored = 0
-        candidates = order_actions(
-            engine_copy,
-            self.player_id,
-            engine_copy.get_legal_actions(self.player_id),
-        )
-        opp_candidates = order_actions(
-            engine_copy,
-            self.opponent_id,
-            engine_copy.get_legal_actions(self.opponent_id),
-        )[:3]
+        candidates = engine_copy.get_legal_actions(self.player_id)
+        opp_candidates = engine_copy.get_legal_actions(self.opponent_id)[:3]
 
         best_action = candidates[0]
         best_score = float("-inf")
@@ -41,7 +33,7 @@ class ExternalGroupBot(BaseTankAgent):
                 child = _apply_joint_step(
                     engine_copy, self.player_id, my_act, opp_act
                 )
-                score = evaluate_tactical(child, self.player_id, 1)
+                score = evaluate_basic(child, self.player_id, 1)
                 if score < worst_reply_score:
                     worst_reply_score = score
             if worst_reply_score > best_score:

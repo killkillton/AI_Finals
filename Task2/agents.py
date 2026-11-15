@@ -47,12 +47,29 @@ from Task2.tank_game_engine import (
     Action,
     Direction,
     TankGameEngine,
+    canonical_action_rank,
 )
 
 # Transposition Table bound flags
 TT_EXACT = 0
 TT_LOWERBOUND = 1
 TT_UPPERBOUND = 2
+
+
+def _subtree_node_estimate(branching_factor: int, rem_depth: int) -> int:
+    """
+    Return the number of subtree game states eliminated when a branch at
+    remaining `rem_depth` is pruned in a tree with local `branching_factor`.
+    """
+    if rem_depth <= 1:
+        return 1
+    b = max(2, branching_factor)
+    total = 0
+    power = 1
+    for _ in range(rem_depth):
+        total += power
+        power *= b
+    return total
 
 
 class TranspositionTable:
@@ -123,8 +140,8 @@ def _apply_joint_step(
     `max_player` and `min_action` for `3 - max_player`.
     """
     if max_player == 1:
-        return engine.simulate_Action(max_action, min_action)
-    return engine.simulate_Action(min_action, max_action)
+        return engine.simulate_action(max_action, min_action)
+    return engine.simulate_action(min_action, max_action)
 
 
 def _apply_tactical_half_ply(
@@ -146,14 +163,21 @@ def _apply_tactical_half_ply(
     if t_min["alive"]:
         tx, ty = t_min["x"], t_min["y"]
         dodged = False
+        v_candidates = (
+            ((Action.MOVE_UP, Direction.UP), (Action.MOVE_DOWN, Direction.DOWN))
+            if opp_id == 1
+            else ((Action.MOVE_DOWN, Direction.DOWN), (Action.MOVE_UP, Direction.UP))
+        )
+        h_candidates = (
+            ((Action.MOVE_RIGHT, Direction.RIGHT), (Action.MOVE_LEFT, Direction.LEFT))
+            if opp_id == 1
+            else ((Action.MOVE_LEFT, Direction.LEFT), (Action.MOVE_RIGHT, Direction.RIGHT))
+        )
         for b in engine.bullets:
             if b["owner"] == max_player:
                 bdx, bdy = DIR_DELTAS[b["dir"]]
                 if bdx != 0 and b["y"] == ty and 0 < (tx - b["x"]) * bdx <= 3:
-                    for cand, d in (
-                        (Action.MOVE_UP, Direction.UP),
-                        (Action.MOVE_DOWN, Direction.DOWN),
-                    ):
+                    for cand, d in v_candidates:
                         dx, dy = DIR_DELTAS[d]
                         nx, ny = tx + dx, ty + dy
                         if (
@@ -166,10 +190,7 @@ def _apply_tactical_half_ply(
                             break
                     break
                 if bdy != 0 and b["x"] == tx and 0 < (ty - b["y"]) * bdy <= 3:
-                    for cand, d in (
-                        (Action.MOVE_LEFT, Direction.LEFT),
-                        (Action.MOVE_RIGHT, Direction.RIGHT),
-                    ):
+                    for cand, d in h_candidates:
                         dx, dy = DIR_DELTAS[d]
                         nx, ny = tx + dx, ty + dy
                         if (
@@ -311,6 +332,7 @@ class BaseTankAgent(ABC):
             return 0.0
 
         t = engine.tanks[self.player_id]
+        opp_tank = engine.tanks[self.opponent_id]
         my_base = engine.bases[self.player_id]
         tx, ty = t["x"], t["y"]
         dir_map = {
@@ -347,11 +369,21 @@ class BaseTankAgent(ABC):
 
         penalty = 0.0
 
+        # Penalize repeatedly attempting to step into a cell contested by the enemy tank
+        if (
+            action in dir_map
+            and stagnant_repeats >= 2
+            and opp_tank["alive"]
+            and abs(nx - opp_tank["x"]) + abs(ny - opp_tank["y"]) <= 1
+        ):
+            penalty -= 95.0 * stagnant_repeats
+
         # Never allow firing at friendly base or friendly base shield walls in live play
+        close_enemy_in_front = False
         if action == Action.FIRE:
             fdx, fdy = DIR_DELTAS[t["dir"]]
             cx, cy = tx, ty
-            for _ in range(1, 10):
+            for step in range(1, 10):
                 cx += fdx
                 cy += fdy
                 if not (0 <= cx < GRID_SIZE and 0 <= cy < GRID_SIZE):
@@ -363,6 +395,16 @@ class BaseTankAgent(ABC):
                 if (cx, cy) == (my_base["x"], my_base["y"]):
                     penalty -= 250.0
                     break
+                if (
+                    opp_tank["alive"]
+                    and (cx, cy) == (opp_tank["x"], opp_tank["y"])
+                    and step <= 2
+                ):
+                    close_enemy_in_front = True
+                    break
+
+        if action == Action.FIRE and close_enemy_in_front:
+            return penalty
 
         valid_target = self._has_valid_fire_target(engine)
         if action == Action.FIRE and valid_target and stagnant_repeats < 5:
@@ -452,8 +494,8 @@ class MinimaxAgent(BaseTankAgent):
                 best_score = score
                 best_action = act
             elif abs(score - best_score) <= 1e-6:
-                if CANONICAL_ACTION_RANK.get(act, 0) > CANONICAL_ACTION_RANK.get(
-                    best_action, 0
+                if canonical_action_rank(self.player_id, act) > canonical_action_rank(
+                    self.player_id, best_action
                 ):
                     best_action = act
 
@@ -520,7 +562,7 @@ class AlphaBetaAgent(BaseTankAgent):
         self,
         player_id: int,
         max_depth: int = 3,
-        use_move_ordering: bool = True,
+        use_move_ordering: bool = False,
     ) -> None:
         super().__init__(
             player_id=player_id,
@@ -561,8 +603,8 @@ class AlphaBetaAgent(BaseTankAgent):
                 best_score = score
                 best_action = act
             elif abs(score - best_score) <= 1e-6:
-                if CANONICAL_ACTION_RANK.get(act, 0) > CANONICAL_ACTION_RANK.get(
-                    best_action, 0
+                if canonical_action_rank(self.player_id, act) > canonical_action_rank(
+                    self.player_id, best_action
                 ):
                     best_action = act
 
@@ -595,26 +637,31 @@ class AlphaBetaAgent(BaseTankAgent):
                 if self.use_move_ordering
                 else raw_actions
             )
+            n_act = len(actions)
 
             if depth == 1:
-                for act in actions:
+                for idx, act in enumerate(actions):
                     child = _apply_tactical_half_ply(engine, self.player_id, act)
                     val = self._alphabeta(child, 0, alpha, beta, False, None)
                     if val > v:
                         v = val
                     if v >= beta:
-                        self.pruned_branches += 1
+                        skipped = max(1, n_act - (idx + 1))
+                        self.pruned_branches += skipped
                         return v
                     if v > alpha:
                         alpha = v
                 return v
 
-            for act in actions:
+            for idx, act in enumerate(actions):
                 val = self._alphabeta(engine, depth - 1, alpha, beta, False, act)
                 if val > v:
                     v = val
                 if v >= beta:
-                    self.pruned_branches += 1
+                    skipped = max(1, n_act - (idx + 1))
+                    self.pruned_branches += skipped * _subtree_node_estimate(
+                        n_act, depth
+                    )
                     return v
                 if v > alpha:
                     alpha = v
@@ -627,17 +674,21 @@ class AlphaBetaAgent(BaseTankAgent):
                 if self.use_move_ordering
                 else raw_actions
             )
+            n_act = len(actions)
             max_act = (
                 pending_max_action if pending_max_action is not None else Action.STAY
             )
 
-            for min_act in actions:
+            for idx, min_act in enumerate(actions):
                 child = _apply_joint_step(engine, self.player_id, max_act, min_act)
                 val = self._alphabeta(child, depth - 1, alpha, beta, True, None)
                 if val < v:
                     v = val
                 if v <= alpha:
-                    self.pruned_branches += 1
+                    skipped = max(1, n_act - (idx + 1))
+                    self.pruned_branches += skipped * _subtree_node_estimate(
+                        n_act, depth
+                    )
                     return v
                 if v < beta:
                     beta = v
@@ -688,8 +739,8 @@ class HeuristicMinimaxAgent(BaseTankAgent):
                 best_score = score
                 best_action = act
             elif abs(score - best_score) <= 1e-6:
-                if CANONICAL_ACTION_RANK.get(act, 0) > CANONICAL_ACTION_RANK.get(
-                    best_action, 0
+                if canonical_action_rank(self.player_id, act) > canonical_action_rank(
+                    self.player_id, best_action
                 ):
                     best_action = act
 
@@ -798,8 +849,8 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
                 best_score = score
                 best_action = act
             elif abs(score - best_score) <= 1e-6:
-                if CANONICAL_ACTION_RANK.get(act, 0) > CANONICAL_ACTION_RANK.get(
-                    best_action, 0
+                if canonical_action_rank(self.player_id, act) > canonical_action_rank(
+                    self.player_id, best_action
                 ):
                     best_action = act
 
@@ -819,16 +870,19 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
         is_max_turn: bool,
         pending_max_action: Optional[Action],
     ) -> float:
-        self.explored_states += 1
-
         if engine.is_terminal():
+            self.explored_states += 1
             return evaluate_terminal(engine, self.player_id, depth)
 
         turn_player = self.player_id if is_max_turn else self.opponent_id
         state_key = engine.state_key(turn_player, pending_max_action)
         cached_val, tt_best_action = self.tt.lookup(state_key, depth, alpha, beta)
         if cached_val is not None:
+            b_est = len(engine.get_legal_actions(turn_player))
+            self.pruned_branches += _subtree_node_estimate(b_est, max(1, depth + 1))
             return cached_val
+
+        self.explored_states += 1
 
         if depth <= 0:
             val = evaluate_tactical(engine, self.player_id, 0)
@@ -847,24 +901,26 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
                 self.player_id,
                 engine.get_legal_actions(self.player_id),
                 tt_best_action=tt_best_action,
-                killer_Action=killer,
+                killer_action=killer,
             )
+            n_act = len(actions)
 
             if depth == 1:
-                for act in actions:
+                for idx, act in enumerate(actions):
                     child = _apply_tactical_half_ply(engine, self.player_id, act)
                     val = self._heuristic_alphabeta(child, 0, alpha, beta, False, None)
                     if val > v:
                         v = val
                         best_act = act
                     if v >= beta:
-                        self.pruned_branches += 1
+                        skipped = max(1, n_act - (idx + 1))
+                        self.pruned_branches += skipped
                         self._killer_moves[depth] = act
                         break
                     if v > alpha:
                         alpha = v
             else:
-                for act in actions:
+                for idx, act in enumerate(actions):
                     val = self._heuristic_alphabeta(
                         engine, depth - 1, alpha, beta, False, act
                     )
@@ -872,7 +928,10 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
                         v = val
                         best_act = act
                     if v >= beta:
-                        self.pruned_branches += 1
+                        skipped = max(1, n_act - (idx + 1))
+                        self.pruned_branches += skipped * _subtree_node_estimate(
+                            n_act, depth
+                        )
                         self._killer_moves[depth] = act
                         break
                     if v > alpha:
@@ -893,13 +952,14 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
                 self.opponent_id,
                 engine.get_legal_actions(self.opponent_id),
                 tt_best_action=tt_best_action,
-                killer_Action=killer,
+                killer_action=killer,
             )
+            n_act = len(actions)
             max_act = (
                 pending_max_action if pending_max_action is not None else Action.STAY
             )
 
-            for min_act in actions:
+            for idx, min_act in enumerate(actions):
                 child = _apply_joint_step(engine, self.player_id, max_act, min_act)
                 val = self._heuristic_alphabeta(
                     child, depth - 1, alpha, beta, True, None
@@ -908,7 +968,10 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
                     v = val
                     best_act = min_act
                 if v <= alpha:
-                    self.pruned_branches += 1
+                    skipped = max(1, n_act - (idx + 1))
+                    self.pruned_branches += skipped * _subtree_node_estimate(
+                        n_act, depth
+                    )
                     self._killer_moves[depth] = min_act
                     break
                 if v < beta:

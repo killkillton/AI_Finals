@@ -45,6 +45,7 @@ from Task2.tank_game_engine import (
     Action,
     Direction,
     TankGameEngine,
+    canonical_action_rank,
 )
 
 WIN_SCORE: float = 100000.0
@@ -93,7 +94,7 @@ def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
     dist_base = abs(tx - opp_base["x"]) + abs(ty - opp_base["y"])
 
     clear_tank_los = False
-    facing_Bonus = 0.0
+    facing_bonus = 0.0
     for target, bonus, is_tank in (
         (opp_tank, 0.8, True),
         (opp_base, 0.4, False),
@@ -108,7 +109,7 @@ def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
                 if is_tank:
                     clear_tank_los = True
                 if t_dir == req_dir:
-                    facing_Bonus += bonus
+                    facing_bonus += bonus
         elif ty == target["y"] and tx != target["x"]:
             step = 1 if target["x"] > tx else -1
             req_dir = Direction.RIGHT if step > 0 else Direction.LEFT
@@ -119,11 +120,11 @@ def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
                 if is_tank:
                     clear_tank_los = True
                 if t_dir == req_dir:
-                    facing_Bonus += bonus
+                    facing_bonus += bonus
 
     if clear_tank_los and dist_tank <= 6:
-        return facing_Bonus
-    return -(1.2 * dist_tank + 0.4 * dist_base) + facing_Bonus
+        return facing_bonus
+    return -(1.2 * dist_tank + 0.4 * dist_base) + facing_bonus
 
 
 def evaluate_basic(
@@ -165,8 +166,8 @@ def evaluate_tactical(
     `HeuristicAlphaBetaAgent`.
 
     Features (all strictly antisymmetric between MAX and MIN):
-    1. Tank HP differential (weight 320.0 per HP)
-    2. Base HP differential (weight 240.0 per HP)
+    1. Tank HP differential (weight 420.0 per HP)
+    2. Base HP differential (weight 280.0 per HP)
     3. Active bullet trajectory threat and interception analysis
     4. Line-of-sight firing alignment, wall-breach progress, friendly base shield
        preservation, and wall-aware shortest-path pursuit of enemy tank and base
@@ -185,8 +186,8 @@ def evaluate_tactical(
     b_max = engine.bases[max_player]
     b_min = engine.bases[min_player]
 
-    w_tank_hp = 320.0 * (t_max["hp"] - t_min["hp"])
-    w_base_hp = 240.0 * (b_max["hp"] - b_min["hp"])
+    w_tank_hp = 420.0 * (t_max["hp"] - t_min["hp"])
+    w_base_hp = 280.0 * (b_max["hp"] - b_min["hp"])
     w_bullets = _evaluate_bullets(engine, max_player)
     w_alignment = (
         _alignment_score_for_player(engine, max_player)
@@ -526,7 +527,7 @@ def order_actions(
     player_id: int,
     actions: Optional[List[Action]] = None,
     tt_best_action: Optional[Action] = None,
-    killer_Action: Optional[Action] = None,
+    killer_action: Optional[Action] = None,
 ) -> List[Action]:
     """
     Move Ordering Heuristic for Alpha-Beta Pruning (Lecture 07 Slide 25):
@@ -535,9 +536,10 @@ def order_actions(
 
     Prioritizes:
     1. Principal variation / Transposition Table best action (`tt_best_action`)
-    2. Killer move from sibling nodes at the same ply (`killer_Action`)
+    2. Killer move from sibling nodes at the same ply (`killer_action`)
     3. Evasive dodges when an enemy bullet is on a collision course
-    4. Direct unobstructed `FIRE` shots at the enemy tank or enemy base
+    4. Direct unobstructed `FIRE` shots at the enemy tank or enemy base (or
+       breaching a 1-HP shield wall protecting the enemy base)
     5. Moves that step toward an unobstructed firing line with the enemy tank
     """
     if actions is None:
@@ -565,12 +567,21 @@ def order_actions(
                 incoming_axis = "V"
                 break
 
+    intercept_x = opp_t["x"]
+    intercept_y = int(round((2 * opp_t["y"] + opp_b["y"]) / 3.0))
+    cur_tank_cost = _query_lane_distance(
+        engine, intercept_x, intercept_y, tx, ty, seed_lanes=False
+    )
+    cur_base_cost = _query_lane_distance(
+        engine, opp_b["x"], opp_b["y"], tx, ty, seed_lanes=True
+    )
+
     scored: List[Tuple[float, Action]] = []
     for act in actions:
         s = 0.0
         if tt_best_action is not None and act == tt_best_action:
             s += 1000.0
-        if killer_Action is not None and act == killer_Action:
+        if killer_action is not None and act == killer_action:
             s += 500.0
 
         if under_imminent_fire:
@@ -592,8 +603,15 @@ def order_actions(
                 if (cx, cy) in engine.walls:
                     if abs(cx - my_b["x"]) + abs(cy - my_b["y"]) <= 2:
                         s -= 90.0
-                    elif step <= 3:
-                        s += 15.0
+                    elif abs(cx - opp_b["x"]) + abs(cy - opp_b["y"]) <= 2:
+                        s += 180.0 - step * 8.0
+                    elif (
+                        (cx == opp_t["x"] and cx == tx)
+                        or (cy == opp_t["y"] and cy == ty)
+                        or (cx == opp_b["x"] and cx == tx)
+                        or (cy == opp_b["y"] and cy == ty)
+                    ):
+                        s += 60.0 - step * 5.0
                     break
                 if (cx, cy) == (my_b["x"], my_b["y"]):
                     s -= 150.0
@@ -611,20 +629,24 @@ def order_actions(
             d = dir_map[act]
             dx, dy = DIR_DELTAS[d]
             nx, ny = tx + dx, ty + dy
-            cur_cost = _query_lane_distance(engine, opp_t["x"], opp_t["y"], tx, ty)
-            new_cost = _query_lane_distance(engine, opp_t["x"], opp_t["y"], nx, ny)
-            s += (cur_cost - new_cost) * 14.0
+            new_tank_cost = _query_lane_distance(
+                engine, intercept_x, intercept_y, nx, ny, seed_lanes=False
+            )
+            new_base_cost = _query_lane_distance(
+                engine, opp_b["x"], opp_b["y"], nx, ny, seed_lanes=True
+            )
+            s += (cur_tank_cost - new_tank_cost) * 16.0 + (cur_base_cost - new_base_cost) * 8.0
             if nx == opp_t["x"] or ny == opp_t["y"]:
-                s += 25.0
+                s += 20.0
             if nx == opp_b["x"] or ny == opp_b["y"]:
-                s += 15.0
+                s += 12.0
         else:
             s -= 25.0
 
         scored.append((s, act))
 
     scored.sort(
-        key=lambda item: (item[0], CANONICAL_ACTION_RANK.get(item[1], 0)),
+        key=lambda item: (item[0], canonical_action_rank(player_id, item[1])),
         reverse=True,
     )
     return [act for _, act in scored]
