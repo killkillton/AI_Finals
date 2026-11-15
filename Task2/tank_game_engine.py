@@ -1,18 +1,5 @@
 """
-Battle City 13x13 Deterministic Zero-Sum Tank Game Engine.
-
-Formal Game Formulation (Course Lecture 07, Slides 4-6 & 9):
-- Initial State (S_0): 13x13 grid at turn t = 0 with two tanks (HP = 6),
-  two headquarters bases (HP = 9), 37 destructible brick walls (HP = 3),
-  and active bullets (Speed = 3 cells/cycle, Damage = 1).
-- PLAYER(s): Returns which player (MAX or MIN) acts at ply state s.
-- ACTIONS(s): Legal action set {FIRE, MOVE_UP, MOVE_DOWN, MOVE_LEFT, MOVE_RIGHT, STAY}.
-- RESULT(s, a): Deterministic transition model updating tank positions/facings,
-  spawning bullets on FIRE, and advancing bullets 3 single-cell sub-steps per cycle
-  with head-on swap and same-cell open-air bullet cancellation, wall damage,
-  and tank/base impact resolution.
-- TERMINAL-TEST(s): True when any tank HP <= 0, any base HP <= 0, or turn >= max_turns.
-- UTILITY(s, p): Zero-sum terminal payoff where UTILITY(s, MAX) + UTILITY(s, MIN) = 0.
+Turn-based engine for the 13x13 Tank Battle game.
 """
 
 from __future__ import annotations
@@ -84,12 +71,7 @@ CANONICAL_ACTION_RANK_P2: Dict[Action, int] = {
 
 
 def canonical_action_rank(player_id: int, action: Action) -> int:
-    """
-    Return the player-symmetric canonical tie-break rank for `action`.
-    Player 2's movement priority is the exact 180-degree rotational mirror
-    of Player 1's (MOVE_UP <-> MOVE_DOWN, MOVE_RIGHT <-> MOVE_LEFT), ensuring
-    zero directional tie-breaking bias between P1 and P2 on symmetric maps.
-    """
+    """Return the player-symmetric tie-break rank for an action."""
     if player_id == 2:
         return CANONICAL_ACTION_RANK_P2.get(action, 0)
     return CANONICAL_ACTION_RANK.get(action, 0)
@@ -115,21 +97,21 @@ OPPOSITE_DIR: Dict[Direction, Direction] = {
     Direction.RIGHT: Direction.LEFT,
 }
 
-# Authentic 37-wall symmetric Battle City arena layout (including outer-border choke blocks)
+# Standard 37-wall symmetric arena layout
 DEFAULT_WALL_COORDS: Tuple[Tuple[int, int], ...] = (
-    # Top Base (Player 2 at (6, 0)) protective brick fortress (5 walls)
+    # Top Base (Player 2 at (6, 0)) shield walls (5 walls)
     (5, 0),
     (7, 0),
     (5, 1),
     (6, 1),
     (7, 1),
-    # Bottom Base (Player 1 at (6, 12)) protective brick fortress (5 walls)
+    # Bottom Base (Player 1 at (6, 12)) shield walls (5 walls)
     (5, 12),
     (7, 12),
     (5, 11),
     (6, 11),
     (7, 11),
-    # Upper-left & upper-right vertical brick columns (8 walls)
+    # Upper brick columns (8 walls)
     (1, 2),
     (1, 3),
     (3, 2),
@@ -138,7 +120,7 @@ DEFAULT_WALL_COORDS: Tuple[Tuple[int, int], ...] = (
     (9, 3),
     (11, 2),
     (11, 3),
-    # Lower-left & lower-right vertical brick columns (8 walls)
+    # Lower brick columns (8 walls)
     (1, 9),
     (1, 10),
     (3, 9),
@@ -147,10 +129,10 @@ DEFAULT_WALL_COORDS: Tuple[Tuple[int, int], ...] = (
     (9, 10),
     (11, 9),
     (11, 10),
-    # Mid-field outer border choke walls preventing passive edge bypass (2 walls)
+    # Side border cover walls (2 walls)
     (0, 5),
     (12, 7),
-    # Mid-field left & right bunker blocks (4 walls)
+    # Mid-field left and right bunkers (4 walls)
     (2, 6),
     (3, 6),
     (9, 6),
@@ -165,9 +147,7 @@ DEFAULT_WALL_COORDS: Tuple[Tuple[int, int], ...] = (
 
 
 class TankGameEngine:
-    """
-    Deterministic zero-sum simultaneous-turn Battle City game engine on a 13x13 grid.
-    """
+    """Turn-based engine for the Tank Battle game on a 13x13 grid."""
 
     def __init__(
         self,
@@ -343,16 +323,12 @@ class TankGameEngine:
             "winner": self.winner,
         }
 
-    # ------------------------------------------------------------------
-    # Formal Lecture 07 Slide 6 Problem Formulation Methods
-    # ------------------------------------------------------------------
-
     def player(self, ply_index: int = 1) -> int:
-        """PLAYER(s): Return the active player (1 or 2) at the given ply."""
+        """Return the active player (1 or 2) at the given ply."""
         return 1 if ply_index % 2 == 1 else 2
 
     def actions(self, player_id: int = 1) -> List[Action]:
-        """ACTIONS(s): Return the 6 formal actions for `player_id` (Lecture 07 Slide 6)."""
+        """Return candidate actions for the given player."""
         t = self.tanks.get(player_id)
         if not t or not t["alive"] or self.is_terminal_flag:
             return [Action.STAY]
@@ -361,15 +337,15 @@ class TankGameEngine:
     def result(
         self, action_p1: Action | str, action_p2: Action | str
     ) -> "TankGameEngine":
-        """RESULT(s, a): Return the successor state without mutating `self`."""
+        """Return the successor state without mutating self."""
         return self.simulate_action(action_p1, action_p2)
 
     def terminal_test(self) -> bool:
-        """TERMINAL-TEST(s): Return True if the game has ended."""
+        """Return True if the game has ended."""
         return self.is_terminal()
 
     def utility(self, player_id: int) -> float:
-        """UTILITY(s, p): Formal zero-sum terminal payoff (+1.0, -1.0, or 0.0)."""
+        """Return zero-sum terminal payoff (+1.0, -1.0, or 0.0) for player_id."""
         if self.winner == player_id:
             return 1.0
         if self.winner == (3 - player_id):
@@ -526,9 +502,8 @@ class TankGameEngine:
             n_bul = len(self.bullets)
             walls_at_substep_start = set(self.walls.keys())
 
-            # Detect opposing bullet cancellation (head-on swap or same open cell).
-            # If both opposing bullets enter a brick wall cell, they do NOT cancel
-            # in mid-air; instead, both strike and damage the wall.
+            # Cancel opposing bullets meeting in an open cell or swapping head-on;
+            # bullets entering a wall cell both damage the wall.
             for i in range(n_bul):
                 for j in range(i + 1, n_bul):
                     if self.bullets[i]["owner"] == self.bullets[j]["owner"]:
@@ -605,10 +580,7 @@ class TankGameEngine:
         return final_state, frames
 
     def _check_terminal(self) -> None:
-        """
-        Evaluate terminal conditions and determine the winner without resurrecting
-        destroyed entities or biasing ties toward Player 1.
-        """
+        """Evaluate terminal conditions and determine the game winner."""
         p1_dead = (not self.tanks[1]["alive"]) or (not self.bases[1]["alive"])
         p2_dead = (not self.tanks[2]["alive"]) or (not self.bases[2]["alive"])
 
@@ -681,13 +653,7 @@ class TankGameEngine:
 
 
 def create_scenario(scenario_name: str = "standard_arena") -> TankGameEngine:
-    """
-    Create one of the 4 standardized tactical benchmark scenarios:
-    - `standard_arena`: Full 37-wall Battle City arena at turn 0.
-    - `open_duel`: Mid-range duel with an incoming enemy bullet 3 cells away from P1.
-    - `base_siege`: Base siege where P1 threatens P2's weakened base (HP = 3) behind a 1-HP wall.
-    - `corridor_skirmish`: Direct vertical firing corridor at x = 3 (distance 5 cells).
-    """
+    """Create one of the four benchmark game scenarios by name."""
     name = (scenario_name or "standard_arena").strip().lower()
     if name == "standard_arena":
         return TankGameEngine()

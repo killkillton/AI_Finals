@@ -10,9 +10,8 @@ from Task2.tank_game_engine import Action, TankGameEngine
 
 class ExternalGroupBot(BaseTankAgent):
     """
-    Reference external student group bot implementation demonstrating dynamic
-    bot loading via the PyGame interface or importlib loader.
-    Uses a greedy 2-ply lookahead with basic material and approach evaluation.
+    Sample external bot class demonstrating dynamic loading via BaseTankAgent.
+    Uses a greedy 2-ply lookahead with basic material and approach scoring.
     """
 
     ALGORITHM_NAME = "External Group Bot"

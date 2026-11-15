@@ -1,34 +1,9 @@
 """
-Heuristic Evaluation Functions and Move Ordering for Battle City Adversarial Search.
+Heuristic evaluation functions and move ordering for the Tank Battle game.
 
-Formal Alignment with Course Lecture 07 (AI-lec07-Adversarial Search.pptx):
-- Slides 4-6: Formal Zero-Sum Game problem components:
-  S_0 (Initial State), PLAYER(s), ACTIONS(s), RESULT(s, a),
-  TERMINAL-TEST(s), and UTILITY(s, p) where UTILITY(s, MAX) + UTILITY(s, MIN) = 0.
-- Slides 9-14: Minimax algorithm (MINIMAX-DECISION, MAX-VALUE, MIN-VALUE) and
-  bounded lookahead motivation due to O(b^m) time complexity (Slide 14).
-- Slides 15-26: Alpha-Beta Pruning (ALPHA-BETA-SEARCH) and Slide 25 properties:
-  * "Pruning does not affect the result"
-  * "Good move ordering improves effectiveness of pruning"
-  * "Killer move heuristic: explore the best move first"
-  * "Transposition table avoids re-evaluation a state"
-- Slides 27-29: Heuristic Minimax (H-MINIMAX(s, d)) replacing TERMINAL-TEST with
-  CUTOFF-TEST(s, d) and UTILITY(s, p) with a heuristic evaluation function EVAL(s).
-
-Theoretical Distinction Implemented in This Module:
-1. Basic Payoff Evaluation (`evaluate_basic`):
-   Used by `MinimaxAgent` and `AlphaBetaAgent`. Computes exact terminal utility
-   at game end and basic material payoff (Tank HP differential + Base HP differential
-   with a simple Manhattan approach tie-breaker) when bounded lookahead cuts off
-   non-terminal trees.
-2. Tactical Multi-Feature Evaluation (`evaluate_tactical` / `EVAL(s)`):
-   Used by `HeuristicMinimaxAgent` and `HeuristicAlphaBetaAgent` (Lecture 07 Slides 27-29).
-   Combines 6 domain-specific zero-sum features:
-     w_1 * Delta_TankHP + w_2 * Delta_BaseHP + w_3 * BulletTrajectoryThreat
-     + w_4 * FiringLineAndShortestPath + w_5 * Mobility + w_6 * BaseDefense
-
-Both `evaluate_basic` and `evaluate_tactical` strictly satisfy the zero-sum property:
-  EVAL(s, 1) == -EVAL(s, 2)  for all game states s.
+Provides terminal utility scoring, basic material evaluation, multi-feature
+tactical evaluation, and alpha-beta move ordering. All evaluation functions
+are strictly zero-sum between Player 1 and Player 2.
 """
 
 from __future__ import annotations
@@ -58,8 +33,7 @@ def evaluate_terminal(
     remaining_depth: int = 0,
 ) -> float:
     """
-    Exact terminal utility function UTILITY(s, p) (Lecture 07 Slide 6).
-    Strictly satisfies UTILITY(s, 1) == -UTILITY(s, 2).
+    Return the exact zero-sum terminal utility from max_player's perspective.
     """
     min_player = 3 - max_player
     t_max = engine.tanks[max_player]
@@ -77,9 +51,7 @@ def evaluate_terminal(
 
 def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
     """
-    Simple Manhattan approach tie-breaker for `evaluate_basic` so basic
-    Minimax/Alpha-Beta agents advance toward the enemy tank/base when no HP
-    change occurs within the lookahead horizon.
+    Compute a simple Manhattan proximity tie-breaker toward enemy targets.
     """
     opp_id = 3 - player_id
     my_tank = engine.tanks[player_id]
@@ -133,13 +105,7 @@ def evaluate_basic(
     remaining_depth: int = 0,
 ) -> float:
     """
-    Basic payoff evaluation for standard `MinimaxAgent` and `AlphaBetaAgent`.
-    Computes exact terminal utility at game end, and basic material differential
-    (Tank HP + Base HP) plus a simple Manhattan approach tie-breaker at
-    non-terminal cutoff states.
-
-    Strictly satisfies zero-sum symmetry:
-      evaluate_basic(engine, 1) == -evaluate_basic(engine, 2)
+    Evaluate states using terminal utility or HP difference plus Manhattan proximity.
     """
     if engine.is_terminal():
         return evaluate_terminal(engine, max_player, remaining_depth)
@@ -161,21 +127,8 @@ def evaluate_tactical(
     remaining_depth: int = 0,
 ) -> float:
     """
-    Tactical multi-feature heuristic evaluation function EVAL(s) for H-MINIMAX
-    (Lecture 07 Slides 27-29), used by `HeuristicMinimaxAgent` and
-    `HeuristicAlphaBetaAgent`.
-
-    Features (all strictly antisymmetric between MAX and MIN):
-    1. Tank HP differential (weight 420.0 per HP)
-    2. Base HP differential (weight 280.0 per HP)
-    3. Active bullet trajectory threat and interception analysis
-    4. Line-of-sight firing alignment, wall-breach progress, friendly base shield
-       preservation, and wall-aware shortest-path pursuit of enemy tank and base
-    5. Local tank mobility differential
-    6. Base defense / interception differential
-
-    Strictly satisfies zero-sum symmetry:
-      evaluate_tactical(engine, 1) == -evaluate_tactical(engine, 2)
+    Evaluate non-terminal board states using HP balance, bullet threats,
+    wall-aware path distance, firing alignment, mobility, and base defense.
     """
     if engine.is_terminal():
         return evaluate_terminal(engine, max_player, remaining_depth)
@@ -204,12 +157,7 @@ def evaluate_tactical(
 
 def _bullet_score_for_player(engine: TankGameEngine, pid: int) -> float:
     """
-    Score all active bullets owned by `pid`.
-    Rewards bullets on a collision trajectory with the enemy tank, enemy base,
-    blocking combat walls, or incoming enemy bullets, and strongly penalizes
-    bullets heading into `pid`'s own base or friendly base shield walls.
-    In-flight bonuses are calibrated strictly below the permanent HP/wall-breach
-    differential so the agent always prefers completing the impact over stalling.
+    Evaluate active bullets for player pid based on projected line impacts.
     """
     opp_id = 3 - pid
     my_tank = engine.tanks[pid]
@@ -324,12 +272,7 @@ def _build_lane_distance_map(
     seed_lanes: bool = True,
 ) -> Dict[Tuple[int, int], float]:
     """
-    Compute wall-aware shortest path cost from every cell on the board to a clear
-    firing position within 6 cells of `(target_x, target_y)` (when `seed_lanes=True`)
-    or directly to `(target_x, target_y)` (when `seed_lanes=False`).
-    Walls on a path add a cost proportional to their remaining HP (`1.0 + 0.75 * whp`),
-    so damaging or destroying a blocking wall strictly reduces path cost while
-    allowing tanks to advance directly into the arena.
+    Compute Dijkstra path costs to clear firing lanes or directly to the target cell.
     """
     wall_sig = tuple(sorted(engine.walls.items()))
     cache_dict = _LANE_CACHE if seed_lanes else _CELL_CACHE
@@ -412,10 +355,7 @@ def _alignment_score_for_player(engine: TankGameEngine, player_id: int) -> float
     t_dir = my_tank["dir"]
     score = 0.0
 
-    # 1. Friendly Base Shield Preservation Bonus:
-    # Preserve brick walls within Manhattan distance <= 2 of friendly base.
-    # Damaging a friendly base wall decreases this player's score; damaging an
-    # enemy base wall decreases the opponent's score (increasing MAX's net score).
+    # Reward keeping protective brick walls intact near the friendly base.
     for (wx, wy), whp in engine.walls.items():
         if abs(wx - my_base["x"]) + abs(wy - my_base["y"]) <= 2:
             score += 14.0 * whp
@@ -530,17 +470,8 @@ def order_actions(
     killer_action: Optional[Action] = None,
 ) -> List[Action]:
     """
-    Move Ordering Heuristic for Alpha-Beta Pruning (Lecture 07 Slide 25):
-    - "Good move ordering improves effectiveness of pruning"
-    - "Killer move heuristic: explore the best move first"
-
-    Prioritizes:
-    1. Principal variation / Transposition Table best action (`tt_best_action`)
-    2. Killer move from sibling nodes at the same ply (`killer_action`)
-    3. Evasive dodges when an enemy bullet is on a collision course
-    4. Direct unobstructed `FIRE` shots at the enemy tank or enemy base (or
-       breaching a 1-HP shield wall protecting the enemy base)
-    5. Moves that step toward an unobstructed firing line with the enemy tank
+    Order candidate actions to improve alpha-beta pruning efficiency.
+    Prioritizes transposition table hints, killer moves, bullet evasion, and shots.
     """
     if actions is None:
         actions = engine.get_legal_actions(player_id)

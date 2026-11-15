@@ -1,26 +1,8 @@
 """
-Adversarial Search Agents for Battle City Tank Combat.
+Adversarial search agents for the Tank Battle game.
 
-Formal Alignment with Course Lecture 07 (AI-lec07-Adversarial Search.pptx):
-- Slides 4-6: Zero-Sum Game formulation:
-  S_0 (Initial State), PLAYER(s), ACTIONS(s), RESULT(s, a),
-  TERMINAL-TEST(s), and UTILITY(s, p).
-- Slides 9-14: Minimax algorithm (`MINIMAX-DECISION`, `MAX-VALUE`, `MIN-VALUE`),
-  time complexity O(b^m), space complexity O(bm), and bounded lookahead motivation.
-- Slides 15-26: Alpha-Beta Pruning (`ALPHA-BETA-SEARCH`) and Slide 25 properties:
-  * "Pruning does not affect the result"
-  * "Good move ordering improves effectiveness of pruning"
-  * "Killer move heuristic: explore the best move first"
-  * "Transposition table avoids re-evaluation a state"
-- Slides 27-29: Heuristic Minimax (`H-MINIMAX(s, d)`), replacing `TERMINAL-TEST`
-  with `CUTOFF-TEST(s, d)` and `UTILITY` with `EVAL(s)`.
-
-Implemented Agents:
-1. `MinimaxAgent`: Bounded-depth Minimax search using basic material payoff (`evaluate_basic`).
-2. `AlphaBetaAgent`: Bounded-depth Alpha-Beta Pruning using basic material payoff (`evaluate_basic`).
-3. `HeuristicMinimaxAgent`: `H-MINIMAX(s, d)` using full tactical evaluation (`evaluate_tactical`).
-4. `HeuristicAlphaBetaAgent`: `H-MINIMAX(s, d)` with Alpha-Beta pruning, move ordering,
-   killer-move heuristic, and Transposition Table caching (`evaluate_tactical`).
+Implements bounded-depth Minimax, Alpha-Beta pruning, and heuristic-guided
+variants with move ordering, killer-move tracking, and transposition caching.
 """
 
 from __future__ import annotations
@@ -74,9 +56,7 @@ def _subtree_node_estimate(branching_factor: int, rem_depth: int) -> int:
 
 class TranspositionTable:
     """
-    State Transposition Table for Alpha-Beta Search (Lecture 07 Slide 25:
-    "Transposition table avoids re-evaluation a state").
-    Caches evaluated game states keyed by `engine.state_key(turn_player, pending_action)`.
+    Stores previously evaluated search states keyed by engine state signature.
     """
 
     def __init__(self, max_entries: int = 100000) -> None:
@@ -96,18 +76,22 @@ class TranspositionTable:
         beta: float,
     ) -> Tuple[Optional[float], Optional[Action]]:
         """
-        Look up a cached state evaluation.
-        Increments `self.hits` ONLY when returning a valid cached utility/heuristic
-        value (`val`) for the requested remaining `depth` that satisfies the
-        exact/alpha/beta bound conditions.
+        Look up a cached state at the exact remaining depth.
+        Returns a cached value when an exact score or valid alpha/beta bound
+        cutoff matches, otherwise returns only the cached best action hint.
         """
         entry = self._table.get(key)
         if entry is None:
             return None, None
         stored_depth, flag, val, best_act = entry
-        if stored_depth == depth and flag == TT_EXACT:
-            self.hits += 1
-            return val, best_act
+        if stored_depth == depth:
+            if (
+                flag == TT_EXACT
+                or (flag == TT_LOWERBOUND and val >= beta)
+                or (flag == TT_UPPERBOUND and val <= alpha)
+            ):
+                self.hits += 1
+                return val, best_act
         return None, best_act
 
     def store(
@@ -150,10 +134,8 @@ def _apply_tactical_half_ply(
     max_action: Action,
 ) -> TankGameEngine:
     """
-    Resolve an odd final search ply (`depth == 1`) by pairing `max_action` with
-    a deterministic reactive opponent policy (evasive dodge if under immediate
-    bullet threat, return fire if aligned on an unobstructed firing line, or
-    `Action.STAY` otherwise) and advancing one physics cycle.
+    Simulate an odd final search ply by pairing MAX's action with a simple
+    reactive MIN response (dodging nearby bullets or returning fire).
     """
     opp_id = 3 - max_player
     t_max = engine.tanks[max_player]
@@ -322,11 +304,8 @@ class BaseTankAgent(ABC):
         action: Action,
     ) -> float:
         """
-        Compute live-play anti-oscillation and anti-stagnation penalty so tanks
-        do not oscillate between two cells or sit in place firing indefinitely
-        when no HP damage is being dealt. Returns 0.0 on a fresh agent before
-        multi-turn history accumulates so single-state search optimality is
-        unaffected.
+        Penalize repeated moves, contested-cell stalls, and friendly-base shots
+        during live play once move history has been recorded.
         """
         if not self._recent_positions:
             return 0.0
@@ -458,10 +437,8 @@ class BaseTankAgent(ABC):
 
 class MinimaxAgent(BaseTankAgent):
     """
-    Standard Bounded-Depth Minimax Agent (Lecture 07 Slides 9-14:
-    `MINIMAX-DECISION`, `MAX-VALUE`, `MIN-VALUE`).
-    Evaluates terminal states with exact `UTILITY(s, p)` and bounded-depth leaf
-    states with basic material payoff (`evaluate_basic`).
+    Depth-bounded Minimax agent using terminal utilities and basic material
+    payoff at cutoff nodes.
     """
 
     ALGORITHM_NAME = "Minimax Search"
@@ -550,10 +527,8 @@ class MinimaxAgent(BaseTankAgent):
 
 class AlphaBetaAgent(BaseTankAgent):
     """
-    Standard Bounded-Depth Alpha-Beta Pruning Agent (Lecture 07 Slides 15-26:
-    `ALPHA-BETA-SEARCH`).
-    Uses the same `evaluate_basic` payoff function as `MinimaxAgent` so that
-    pruning preserves the exact Minimax decision while reducing explored states.
+    Depth-bounded Alpha-Beta pruning agent using the same basic material payoff
+    as MinimaxAgent.
     """
 
     ALGORITHM_NAME = "Alpha-Beta Search"
@@ -697,10 +672,8 @@ class AlphaBetaAgent(BaseTankAgent):
 
 class HeuristicMinimaxAgent(BaseTankAgent):
     """
-    Heuristic Minimax Agent implementing `H-MINIMAX(s, d)` (Lecture 07 Slides 27-29).
-    Replaces `TERMINAL-TEST` with `CUTOFF-TEST(s, d)` and `UTILITY` with the
-    multi-feature tactical heuristic evaluation function `EVAL(s)` (`evaluate_tactical`),
-    without Alpha-Beta branch pruning or move ordering.
+    Depth-limited Heuristic Minimax agent using multi-feature tactical leaf
+    evaluation without alpha-beta pruning.
     """
 
     ALGORITHM_NAME = "Heuristic Minimax Search"
@@ -713,7 +686,7 @@ class HeuristicMinimaxAgent(BaseTankAgent):
         )
 
     def cutoff_test(self, engine: TankGameEngine, depth: int) -> bool:
-        """CUTOFF-TEST(s, d) (Lecture 07 Slide 28)."""
+        """Return True at terminal states or when depth reaches zero."""
         return engine.is_terminal() or depth <= 0
 
     def get_action(
@@ -793,9 +766,8 @@ class HeuristicMinimaxAgent(BaseTankAgent):
 
 class HeuristicAlphaBetaAgent(BaseTankAgent):
     """
-    Heuristic Alpha-Beta Agent combining `H-MINIMAX(s, d)` (Lecture 07 Slides 27-29)
-    with Alpha-Beta Pruning, Move Ordering, Killer Move Heuristic, and
-    Transposition Table state caching (Lecture 07 Slide 25).
+    Heuristic Minimax agent with alpha-beta pruning, move ordering, killer-move
+    tracking, and a transposition table.
     """
 
     ALGORITHM_NAME = "Heuristic Minimax Search with Alpha-Beta Pruning"
@@ -810,7 +782,7 @@ class HeuristicAlphaBetaAgent(BaseTankAgent):
         self._killer_moves: Dict[int, Action] = {}
 
     def cutoff_test(self, engine: TankGameEngine, depth: int) -> bool:
-        """CUTOFF-TEST(s, d) (Lecture 07 Slide 28)."""
+        """Return True at terminal states or when depth reaches zero."""
         return engine.is_terminal() or depth <= 0
 
     def get_action(

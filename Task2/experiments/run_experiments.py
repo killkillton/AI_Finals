@@ -713,7 +713,7 @@ def build_executed_notebook(
         )
     cell3_stdout = "\n".join(lines_c3)
 
-    # Dynamically extract depth-4 and tournament metrics for markdown summary
+    # Extract summary metrics for notebook markdown summary
     d4_hmm_std = next(
         r
         for r in depth_rows
@@ -827,9 +827,9 @@ def build_executed_notebook(
 
 ---
 
-## 1. Zero-Sum Game Formulation (Requirement 1 -- Lecture 07 Alignment)
+## 1. Problem Formulation as a Zero-Sum Game
 
-Following the formal adversarial search framework of Russell and Norvig [1] and Lecture 07 (*Adversarial Search*, Slides 4-6 & 9) [3], we formulate the turn-based Tank Battle Game as a finite, deterministic, two-player **Zero-Sum Game** defined by the formal components:
+Following Russell and Norvig [1] and the course lecture notes [3], we formulate the turn-based Tank Battle Game as a finite, deterministic, two-player **Zero-Sum Game** defined by the formal components:
 $$\\mathcal{{G}} = \\langle S_0, \\text{{PLAYER}}, \\text{{ACTIONS}}, \\text{{RESULT}}, \\text{{TERMINAL-TEST}}, \\text{{UTILITY}} \\rangle$$
 
 ### 1.1 Initial State ($S_0$) and State Representation ($s \\in S$)
@@ -863,17 +863,17 @@ Given state $s$ and joint actions $(a_1, a_2)$, the deterministic transition mod
 ### 1.4 Terminal Test ($\\text{{TERMINAL-TEST}}(s)$) and Utility Function ($\\text{{UTILITY}}(s, p)$)
 - $\\text{{TERMINAL-TEST}}(s)$ returns `True` when at least one Tank or Base has $HP \\le 0$ (or when the turn limit is reached):
 $$\\text{{TERMINAL-TEST}}(s) \\iff \\exists p \\in \\{{1, 2\\}}: (hp_p \\le 0) \\lor (bhp_p \\le 0)$$
-- $\\text{{UTILITY}}(s, p)$ defines the exact numerical payoff for player $p$ (with opponent $q = 3 - p$ and remaining search depth $d$), strictly satisfying the **Zero-Sum property** $\\text{{UTILITY}}(s, 1) = -\\text{{UTILITY}}(s, 2)$ (Lecture 07, Slides 4-6):
+- $\\text{{UTILITY}}(s, p)$ defines the exact numerical payoff for player $p$ (with opponent $q = 3 - p$ and remaining search depth $d$), strictly satisfying the **zero-sum property** $\\text{{UTILITY}}(s, 1) = -\\text{{UTILITY}}(s, 2)$:
 $$\\text{{UTILITY}}(s, p) = \\begin{{cases}} +100000 + 500d + 200(hp_p - hp_q) + 150(bhp_p - bhp_q) & \\text{{if player }} p \\text{{ wins}} \\\\ -100000 - 500d + 200(hp_p - hp_q) + 150(bhp_p - bhp_q) & \\text{{if player }} q \\text{{ wins}} \\\\ 200(hp_p - hp_q) + 150(bhp_p - bhp_q) & \\text{{if draw}} \\end{{cases}}$$
 
 ### 1.5 Cutoff Test ($\\text{{CUTOFF-TEST}}(s, d)$) and Evaluation Functions ($\\text{{EVAL}}_{{\\text{{basic}}}}$ vs $\\text{{EVAL}}$)
-Following Lecture 07 (Slides 14 & 27-29), because the full game tree has branching factor $b = 6$ per ply ($O(b^m)$ time complexity), searching to terminal states is infeasible in real time. We replace $\\text{{TERMINAL-TEST}}(s)$ with $\\text{{CUTOFF-TEST}}(s, d) \\iff \\text{{TERMINAL-TEST}}(s) \\lor (d \\le 0)$ and distinguish two strictly zero-sum evaluation functions ($\\text{{EVAL}}(s, 1) = -\\text{{EVAL}}(s, 2)$):
-1. **Basic Material Payoff (`evaluate_basic` for `MinimaxAgent` and `AlphaBetaAgent` -- Slides 9-26):**
+Because the full game tree has branching factor $b = 6$ per ply ($O(b^m)$ time complexity), searching to terminal states is infeasible in real time. We replace $\\text{{TERMINAL-TEST}}(s)$ with $\\text{{CUTOFF-TEST}}(s, d) \\iff \\text{{TERMINAL-TEST}}(s) \\lor (d \\le 0)$ and define two strictly zero-sum evaluation functions ($\\text{{EVAL}}(s, 1) = -\\text{{EVAL}}(s, 2)$):
+1. **Basic Material Payoff (`evaluate_basic` for `MinimaxAgent` and `AlphaBetaAgent`):**
 $$\\text{{EVAL}}_{{\\text{{basic}}}}(s, p) = 300(hp_p - hp_q) + 220(bhp_p - bhp_q) + \\Phi_{{\\text{{pos}}}}(s, p) - \\Phi_{{\\text{{pos}}}}(s, q)$$
-2. **Tactical Multi-Feature Heuristic (`evaluate_tactical` / `EVAL(s)` for `HeuristicMinimaxAgent` and `HeuristicAlphaBetaAgent` -- Slides 27-29):**
+2. **Tactical Multi-Feature Heuristic (`evaluate_tactical` / `EVAL(s)` for `HeuristicMinimaxAgent` and `HeuristicAlphaBetaAgent`):**
 $$\\text{{EVAL}}(s, p) = 420(hp_p - hp_q) + 280(bhp_p - bhp_q) + \\Phi_{{\\text{{bullets}}}}(s, p) - \\Phi_{{\\text{{bullets}}}}(s, q) + \\Phi_{{\\text{{align}}}}(s, p) - \\Phi_{{\\text{{align}}}}(s, q) + 2(\\text{{Mob}}(s, p) - \\text{{Mob}}(s, q)) + \\Phi_{{\\text{{def}}}}(s, p) - \\Phi_{{\\text{{def}}}}(s, q)$$
 where:
-- **Material Dominance ($w_{{\\text{{tank}}}} = 420, w_{{\\text{{base}}}} = 280$):** Preserving tank and base health strictly dominates positional sub-terms while obeying $\\text{{Lose}} < \\text{{EVAL}}(s) < \\text{{Win}}$ (Lecture 07, Slide 27).
+- **Material Dominance ($w_{{\\text{{tank}}}} = 420, w_{{\\text{{base}}}} = 280$):** Preserving tank and base health strictly dominates positional sub-terms while obeying $\\text{{Lose}} < \\text{{EVAL}}(s) < \\text{{Win}}$.
 - **3-Cell Projectile Threat & Evasion ($\\Phi_{{\\text{{bullets}}}}$):** Projects all active bullets in 3-cell cycle increments, rewarding 1-cycle offensive tank hits ($+180$, or $-180$ when an enemy bullet is 1 cycle from striking player $p$'s tank) and 1-cycle enemy base hits ($+150$), rewarding wall-breach shots ($+10$), and penalizing friendly base shield wall shots ($-60$).
 - **Obstacle-Aware Routing, Line-of-Sight, & Base Shield Preservation ($\\Phi_{{\\text{{align}}}}$):** Preserves friendly base shield walls ($+14 \\times whp$), prioritizes line-of-sight alignment with the enemy tank ($1.85 \\times v_{{\\text{{tank}}}}$) and enemy base ($1.20 \\times v_{{\\text{{base}}}}$), and minimizes wall-aware shortest-path cost ($4.2 \\times \\text{{cost}}_{{\\text{{tank}}}} + 1.8 \\times \\text{{cost}}_{{\\text{{base}}}}$)."""
         ),
@@ -916,13 +916,13 @@ print(f"Engine Clone Throughput: ~{clone_rate:,} clones/second")""",
         ),
         md_cell(
             """---
-## 2. Implementation & Comparative Experiments Across the 4 Search Configurations (Requirement 2)
+## 2. Adversarial Search Algorithms and Experimental Setup
 
-In accordance with Lecture 07 [3], we implement and benchmark four adversarial search configurations:
-1. **Minimax Search (`MinimaxAgent` -- Slides 9-14):** Exhaustive depth-bounded recursion (`MINIMAX-DECISION`, `MAX-VALUE`, `MIN-VALUE`) using `evaluate_basic` without pruning ($O(b^m)$ time, $O(bm)$ space).
-2. **Alpha-Beta Search (`AlphaBetaAgent` -- Slides 15-26):** Depth-bounded recursion (`ALPHA-BETA-SEARCH`) maintaining $[\\alpha, \\beta]$ bounds and pruning subtrees whenever $\\beta \\le \\alpha$. Obeys the **Slide 25 Invariant**: *"Pruning does not affect the result"* -- returning the exact same minimax score and action as `MinimaxAgent`.
-3. **Heuristic Minimax Search (`HeuristicMinimaxAgent` -- Slides 27-29):** Depth-limited minimax (`H-MINIMAX(s, d)`) using $\\text{CUTOFF-TEST}(s, d)$ and the full tactical heuristic evaluation $\\text{EVAL}(s)$ (`evaluate_tactical`) without alpha-beta pruning or move ordering.
-4. **Heuristic Minimax Search with Alpha-Beta Pruning (`HeuristicAlphaBetaAgent` -- Slides 15-26 & 27-29):** Combines `H-MINIMAX(s, d)` ($\\text{EVAL}(s)$) with $\\alpha\\text{--}\\beta$ pruning, **Move Ordering** (`order_actions`), **Killer Move Heuristic** (`_killer_moves`), and **Transposition Table** state caching (`TT_EXACT`, `TT_LOWERBOUND`, `TT_UPPERBOUND`) as specified on Lecture 07 Slide 25 while preserving exact score and action equivalence with `HeuristicMinimaxAgent`."""
+We implement and benchmark four adversarial search configurations:
+1. **Minimax Search (`MinimaxAgent`):** Depth-bounded recursion (`MINIMAX-DECISION`, `MAX-VALUE`, `MIN-VALUE`) using `evaluate_basic` without pruning ($O(b^m)$ time, $O(bm)$ space).
+2. **Alpha-Beta Search (`AlphaBetaAgent`):** Depth-bounded alpha-beta search maintaining $[\\alpha, \\beta]$ bounds and pruning subtrees whenever $\\beta \\le \\alpha$, returning the exact same minimax score and action as `MinimaxAgent`.
+3. **Heuristic Minimax Search (`HeuristicMinimaxAgent`):** Depth-limited heuristic minimax (`H-MINIMAX(s, d)`) using $\\text{{CUTOFF-TEST}}(s, d)$ and the multi-feature tactical evaluation $\\text{{EVAL}}(s)$ (`evaluate_tactical`) without pruning or move ordering.
+4. **Heuristic Minimax Search with Alpha-Beta Pruning (`HeuristicAlphaBetaAgent`):** Combines `H-MINIMAX(s, d)` ($\\text{{EVAL}}(s)$) with alpha-beta pruning, **Move Ordering** (`order_actions`), **Killer Move Heuristic** (`_killer_moves`), and **Transposition Table** state caching (`TT_EXACT`, `TT_LOWERBOUND` when $v \\ge \\beta$, and `TT_UPPERBOUND` when $v \\le \\alpha$ at the exact remaining depth) while preserving exact score and action equivalence with `HeuristicMinimaxAgent`."""
         ),
         code_cell(
             2,
@@ -966,12 +966,12 @@ display(Image(filename=str(RESULTS_DIR / "tournament_win_rates_and_hp.png")))"""
 
 {md_summary_table}
 
-1. **Exact Optimality Preservation (Lecture 07, Slide 25 Invariant):** Across all 4 tactical scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and all search depths ($d \\in \\{{1, 2, 3, 4\\}}$), `AlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `MinimaxAgent`, and `HeuristicAlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `HeuristicMinimaxAgent`. Consequently, in the symmetric double round-robin tournament, `Minimax Search` and `Alpha-Beta Search` achieve identical win rates ({mm_sum['win_rate_pct']:.2f}% vs {ab_sum['win_rate_pct']:.2f}%) and remaining HP ({mm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {mm_sum['avg_remaining_base_hp']:.2f}/9 Base), and `Heuristic Minimax Search` and `Heuristic Minimax Search with Alpha-Beta Pruning` achieve identical win rates ({hmm_sum['win_rate_pct']:.2f}% vs {hab_sum['win_rate_pct']:.2f}%) and remaining HP ({hmm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {hmm_sum['avg_remaining_base_hp']:.2f}/9 Base).
-2. **Computational Speedup, Move Ordering, & Transposition Table Caching:** At depth $d = 4$ on `standard_arena`, unpruned `HeuristicMinimaxAgent` explores ${d4_hmm_std['explored_states']:,}$ states (${d4_hmm_std['execution_time_ms']:.2f}\\text{{ ms}}$), whereas `HeuristicAlphaBetaAgent` prunes **${d4_hab_std['pruning_rate_pct']:.2f}\\%$** of the search tree (${d4_hab_open['pruning_rate_pct']:.2f}\\%$ on `open_duel`) with ${d4_hab_std['tt_hits']}$ genuine Transposition Table hits, exploring only ${d4_hab_std['explored_states']}$ states in **${d4_hab_std['execution_time_ms']:.2f}\\text{{ ms}}$** and reducing average tournament turn time from ${hmm_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$ to **${hab_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$**.
+1. **Pruning Optimality Equivalence:** Across all 4 scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and all search depths ($d \\in \\{{1, 2, 3, 4\\}}$), `AlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `MinimaxAgent`, and `HeuristicAlphaBetaAgent` returns the **exact same `best_score` and `selected_action`** as `HeuristicMinimaxAgent`. On the symmetric `standard_arena` initial state, even ply depths ($d = 2, 4$) evaluate to `0.00` because one game cycle consists of two plies (`MAX` followed by `MIN`), so both symmetric players receive an equal number of moves. In the symmetric double round-robin tournament, `Minimax Search` and `Alpha-Beta Search` achieve identical win rates ({mm_sum['win_rate_pct']:.2f}% vs {ab_sum['win_rate_pct']:.2f}%) and remaining HP ({mm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {mm_sum['avg_remaining_base_hp']:.2f}/9 Base), and `Heuristic Minimax Search` and `Heuristic Minimax Search with Alpha-Beta Pruning` achieve identical win rates ({hmm_sum['win_rate_pct']:.2f}% vs {hab_sum['win_rate_pct']:.2f}%) and remaining HP ({hmm_sum['avg_remaining_tank_hp']:.2f}/6 Tank, {hmm_sum['avg_remaining_base_hp']:.2f}/9 Base).
+2. **Computational Speedup, Move Ordering, & Transposition Table Caching:** At depth $d = 4$ on `standard_arena`, unpruned `HeuristicMinimaxAgent` explores ${d4_hmm_std['explored_states']:,}$ states (${d4_hmm_std['execution_time_ms']:.2f}\\text{{ ms}}$), whereas `HeuristicAlphaBetaAgent` prunes **${d4_hab_std['pruning_rate_pct']:.2f}\\%$** of the search tree (${d4_hab_open['pruning_rate_pct']:.2f}\\%$ on `open_duel`) with ${d4_hab_std['tt_hits']}$ Transposition Table hits, exploring only ${d4_hab_std['explored_states']}$ states in **${d4_hab_std['execution_time_ms']:.2f}\\text{{ ms}}$** and reducing average tournament turn time from ${hmm_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$ to **${hab_sum['avg_turn_time_ms']:.2f}\\text{{ ms}}$**.
 3. **Tactical Superiority in Head-to-Head Combat:** Across all 4 scenarios (`standard_arena`, `open_duel`, `base_siege`, `corridor_skirmish`) and both P1/P2 sides, the tactical heuristic agents (`HeuristicAlphaBetaAgent` and `HeuristicMinimaxAgent`) defeat the baseline agents in **{h_vs_b_wins}/{h_vs_b_matches}** head-to-head matches ({h_vs_b_draws} draws, {h_vs_b_losses} losses to baseline agents) while navigating the {len(init_state['walls'])}-wall Battle City arena without stalling. Overall across all {hab_sum['matches_played']} tournament matches (including mirror/sibling matchups), each heuristic configuration records **{hab_sum['wins']} wins, {hab_draws} draws, and {hab_losses} losses** (**{hab_sum['win_rate_pct']:.2f}%** win rate), compared to **{mm_sum['wins']} wins** (**{mm_sum['win_rate_pct']:.2f}%** win rate) for the baseline configurations.
 
 ---
-## 3. PyGame GUI Integration & External Student Group Bot Loader (Requirement 3)
+## 3. GUI Integration and External Bot Interface
 
 The `Task2` package connects directly to the shared PyGame application (`main.py` and `frontend/`):
 - `Task2/tank_game_engine.py` provides `TankGameEngine` and `Action`, exposing `reset() -> dict`, `clone() -> TankGameEngine`, and `step(action_p1, action_p2) -> (state, sub_ticks)` so `frontend/tank_scene.py` animates every 1-cell bullet sub-step and updates tank/base health bars on the {len(init_state['walls'])}-wall Battle City arena.

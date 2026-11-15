@@ -66,7 +66,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         for wall in state["walls"]:
             self.assertEqual(wall["hp"], 3)
 
-    def test_lecture_07_formal_methods(self):
+    def test_formal_game_interface_methods(self):
         engine = TankGameEngine()
         self.assertEqual(engine.player(1), 1)
         self.assertEqual(engine.player(2), 2)
@@ -155,9 +155,8 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertEqual((sub_ticks[1]["bullets"][0]["x"], sub_ticks[1]["bullets"][0]["y"]), (2, 6))
 
     def test_opposing_bullets_entering_wall_damage_wall_not_cancel(self):
-        # Verify fix for Immortal Wall (6, 6) bug: two opposing bullets entering
-        # a wall cell on the same sub-step both damage the wall (HP: 3 -> 1) instead
-        # of cancelling each other out in mid-air.
+        # Two opposing bullets entering a wall cell on the same sub-step both damage
+        # the wall (HP: 3 -> 1) instead of cancelling each other in mid-air.
         engine = TankGameEngine(
             initial_state={
                 "turn": 0,
@@ -305,7 +304,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         )
 
     def test_minimax_vs_alphabeta_exact_equivalence_and_pruning(self):
-        # Lecture 07 Slide 25 Invariant: Pruning does not affect the result
+        # Alpha-beta pruning must preserve exact Minimax actions and scores across scenarios
         for scenario_name in ("standard_arena", "open_duel", "base_siege", "corridor_skirmish"):
             with self.subTest(scenario=scenario_name):
                 engine = create_scenario(scenario_name)
@@ -489,8 +488,27 @@ class Task2EngineAndSearchTests(unittest.TestCase):
     def test_academic_integrity_and_pure_ascii_compliance(self):
         task2_dir = Path(__file__).resolve().parent.parent
         forbidden_substrings = (
+            "Slide 4",
+            "Slide 6",
+            "Slide 9",
+            "Slide 14",
+            "Slide 15",
+            "Slide 25",
+            "Slide 26",
+            "Slide 27",
+            "Slide 28",
+            "Slide 29",
             "Slide 33",
+            "Slides 4",
+            "Slides 9",
+            "Slides 14",
+            "Slides 15",
+            "Slides 27",
+            "Requirement 1",
+            "Requirement 2",
+            "Requirement 3",
             "Contract 2",
+            "Authentic 37-wall",
             "LEGACY_PREVIEW_WALL_COORDS",
             "simulate_Action",
             "facing_Bonus",
