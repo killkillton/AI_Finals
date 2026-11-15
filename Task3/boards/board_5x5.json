@@ -1,6 +1,6 @@
 {
   "board_id": "board_5x5",
-  "description": "5x5 Kakuro board from Page 5 of 2627-HK1-AI-CK-M.pdf",
+  "description": "5x5 Kakuro example board",
   "rows": 5,
   "cols": 5,
   "grid": [

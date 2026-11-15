@@ -532,8 +532,9 @@ class KakuroCSP:
             parts = []
             if use_mrv:
                 parts.append(len(domains[var]))
-            parts.append(-sum(1 for peer in self.peers[var] if peer not in assignments))
-            parts.extend(run_tightness(var))
+            if use_degree:
+                parts.append(-sum(1 for peer in self.peers[var] if peer not in assignments))
+                parts.extend(run_tightness(var))
             parts.append(var)
             return tuple(parts)
 
@@ -683,7 +684,9 @@ class KakuroCSP:
         elif use_mrv or use_lcv:
             # Without AC-3, still cut each domain down to values that fit the run sums
             for var in self.variables:
+                before = len(domains[var])
                 domains[var] = self._get_legal_run_values(var, {}, domains)
+                stats["prunings"] += before - len(domains[var])
                 if not domains[var]:
                     consistent = False
 
