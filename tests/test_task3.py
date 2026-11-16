@@ -2,13 +2,13 @@ import sys
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from Task3.kakuro_csp import KakuroCSP
 
-TASK3_DIR = Path(__file__).resolve().parents[1]
+TASK3_DIR = ROOT / "Task3"
 EVENT_KEYS = {"event_type", "focus_cell", "assigned_value", "pruned_cells", "assignments", "domains", "stats"}
 EVENT_TYPES = {"SELECT_VAR", "ASSIGN", "PROPAGATE", "CONFLICT", "BACKTRACK", "SOLVED"}
 

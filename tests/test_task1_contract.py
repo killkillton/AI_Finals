@@ -93,6 +93,19 @@ class Task1ContractTests(unittest.TestCase):
                 {"N", "variant", "avg_steps", "avg_runtime_ms", "success_rate"},
             )
 
+    def test_notebook_exists_and_has_saved_outputs(self):
+        import json
+
+        nb_path = Path(__file__).resolve().parent.parent / "Task1" / "Task1_Experiments_and_Formulation.ipynb"
+        self.assertTrue(nb_path.is_file(), f"Missing executed notebook: {nb_path}")
+        data = json.loads(nb_path.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("nbformat"), 4)
+        code_cells = [c for c in data.get("cells", []) if c.get("cell_type") == "code"]
+        self.assertGreaterEqual(len(code_cells), 4)
+        for cell in code_cells:
+            self.assertIsNotNone(cell.get("execution_count"))
+            self.assertGreater(len(cell.get("outputs", [])), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
