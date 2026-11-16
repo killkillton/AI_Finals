@@ -1,33 +1,33 @@
 scenario,depth,algorithm,execution_time_ms,explored_states,pruned_branches,pruning_rate_pct,tt_hits,selected_action,best_score
-standard_arena,1,Minimax Search,0.1531,4,0,0.0,0,MOVE_UP,0.4
-standard_arena,1,Alpha-Beta Search,0.1344,4,0,0.0,0,MOVE_UP,0.4
-standard_arena,1,Heuristic Minimax Search,2.4379,4,0,0.0,0,MOVE_UP,1.8
-standard_arena,1,Heuristic Minimax Search with Alpha-Beta Pruning,0.3785,4,0,0.0,0,MOVE_UP,1.8
-standard_arena,2,Minimax Search,0.4026,20,0,0.0,0,MOVE_UP,0.0
-standard_arena,2,Alpha-Beta Search,0.2987,15,5,25.0,0,MOVE_UP,0.0
-standard_arena,2,Heuristic Minimax Search,1.4389,20,0,0.0,0,MOVE_UP,0.0
-standard_arena,2,Heuristic Minimax Search with Alpha-Beta Pruning,0.8152,11,9,45.0,0,MOVE_UP,0.0
-standard_arena,3,Minimax Search,1.8979,92,0,0.0,0,MOVE_UP,0.4
-standard_arena,3,Alpha-Beta Search,1.1017,49,37,43.02,0,MOVE_UP,0.4
-standard_arena,3,Heuristic Minimax Search,14.2881,92,0,0.0,0,MOVE_UP,5.8
-standard_arena,3,Heuristic Minimax Search with Alpha-Beta Pruning,2.3897,27,59,68.6,5,MOVE_UP,5.8
-standard_arena,4,Minimax Search,7.6602,416,0,0.0,0,MOVE_UP,0.0
-standard_arena,4,Alpha-Beta Search,2.6522,130,224,63.28,0,MOVE_UP,0.0
-standard_arena,4,Heuristic Minimax Search,25.0658,416,0,0.0,0,MOVE_UP,0.0
-standard_arena,4,Heuristic Minimax Search with Alpha-Beta Pruning,4.2403,57,295,83.81,10,MOVE_UP,0.0
-open_duel,1,Minimax Search,0.1784,6,0,0.0,0,MOVE_RIGHT,0.4
-open_duel,1,Alpha-Beta Search,0.1647,6,0,0.0,0,MOVE_RIGHT,0.4
-open_duel,1,Heuristic Minimax Search,3.0804,6,0,0.0,0,MOVE_RIGHT,1.8
-open_duel,1,Heuristic Minimax Search with Alpha-Beta Pruning,0.3297,6,0,0.0,0,MOVE_RIGHT,1.8
-open_duel,2,Minimax Search,0.7819,42,0,0.0,0,MOVE_RIGHT,0.0
-open_duel,2,Alpha-Beta Search,0.3849,22,20,47.62,0,MOVE_RIGHT,0.0
-open_duel,2,Heuristic Minimax Search,2.5016,42,0,0.0,0,MOVE_RIGHT,0.0
-open_duel,2,Heuristic Minimax Search with Alpha-Beta Pruning,0.6609,17,25,59.52,0,MOVE_RIGHT,0.0
-open_duel,3,Minimax Search,4.9189,258,0,0.0,0,MOVE_RIGHT,0.4
-open_duel,3,Alpha-Beta Search,1.7702,80,178,68.99,0,MOVE_RIGHT,0.4
-open_duel,3,Heuristic Minimax Search,10.0653,258,0,0.0,0,MOVE_RIGHT,4.5
-open_duel,3,Heuristic Minimax Search with Alpha-Beta Pruning,2.8795,62,196,75.97,5,MOVE_RIGHT,4.5
-open_duel,4,Minimax Search,24.4552,1554,0,0.0,0,MOVE_RIGHT,0.0
-open_duel,4,Alpha-Beta Search,3.7832,232,1322,85.07,0,MOVE_RIGHT,0.0
-open_duel,4,Heuristic Minimax Search,46.06,1554,0,0.0,0,MOVE_RIGHT,-1.5
-open_duel,4,Heuristic Minimax Search with Alpha-Beta Pruning,7.818,191,1363,87.71,8,MOVE_RIGHT,-1.5
+standard_arena,1,Minimax Search,1.108,36,0,0.0,0,MOVE_UP,0.0
+standard_arena,1,Alpha-Beta Search,0.625,19,17,47.22,0,MOVE_UP,0.0
+standard_arena,1,Heuristic Minimax Search,3.5246,36,0,0.0,0,MOVE_UP,0.0
+standard_arena,1,Heuristic Minimax Search with Alpha-Beta Pruning,2.218,11,25,69.44,0,MOVE_UP,0.0
+standard_arena,2,Minimax Search,1.5619,42,0,0.0,0,MOVE_UP,0.0
+standard_arena,2,Alpha-Beta Search,0.617,25,17,40.48,0,MOVE_UP,0.0
+standard_arena,2,Heuristic Minimax Search,2.6272,42,0,0.0,0,MOVE_UP,0.0
+standard_arena,2,Heuristic Minimax Search with Alpha-Beta Pruning,4.1451,17,25,59.52,0,MOVE_UP,0.0
+standard_arena,3,Minimax Search,8.295,246,0,0.0,0,MOVE_UP,1.8
+standard_arena,3,Alpha-Beta Search,4.0247,101,153,60.24,0,MOVE_UP,1.8
+standard_arena,3,Heuristic Minimax Search,20.2125,246,0,0.0,0,MOVE_UP,7.5
+standard_arena,3,Heuristic Minimax Search with Alpha-Beta Pruning,15.0803,43,213,83.2,13,MOVE_UP,7.5
+standard_arena,4,Minimax Search,45.3187,1402,0,0.0,0,MOVE_UP,0.0
+standard_arena,4,Alpha-Beta Search,9.1289,299,1221,80.33,0,MOVE_UP,0.0
+standard_arena,4,Heuristic Minimax Search,88.1029,1402,0,0.0,0,MOVE_UP,0.0
+standard_arena,4,Heuristic Minimax Search with Alpha-Beta Pruning,18.0073,97,1441,93.69,26,MOVE_UP,0.0
+open_duel,1,Minimax Search,0.6842,36,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,1,Alpha-Beta Search,0.3283,16,20,55.56,0,MOVE_RIGHT,0.5
+open_duel,1,Heuristic Minimax Search,1.9362,36,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,1,Heuristic Minimax Search with Alpha-Beta Pruning,2.7425,11,25,69.44,0,MOVE_RIGHT,0.5
+open_duel,2,Minimax Search,0.7865,42,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,2,Alpha-Beta Search,0.4267,22,20,47.62,0,MOVE_RIGHT,0.5
+open_duel,2,Heuristic Minimax Search,2.2243,42,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,2,Heuristic Minimax Search with Alpha-Beta Pruning,2.7356,17,25,59.52,0,MOVE_RIGHT,0.5
+open_duel,3,Minimax Search,7.351,258,0,0.0,0,MOVE_RIGHT,2.3
+open_duel,3,Alpha-Beta Search,3.9359,81,177,68.6,0,MOVE_RIGHT,2.3
+open_duel,3,Heuristic Minimax Search,9.7953,258,0,0.0,0,MOVE_RIGHT,7.15
+open_duel,3,Heuristic Minimax Search with Alpha-Beta Pruning,5.6996,64,194,75.19,5,MOVE_RIGHT,7.15
+open_duel,4,Minimax Search,30.5864,1554,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,4,Alpha-Beta Search,5.8607,246,1308,84.17,0,MOVE_RIGHT,0.5
+open_duel,4,Heuristic Minimax Search,59.5561,1554,0,0.0,0,MOVE_RIGHT,0.5
+open_duel,4,Heuristic Minimax Search with Alpha-Beta Pruning,15.3634,176,1378,88.67,11,MOVE_RIGHT,0.5

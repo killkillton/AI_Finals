@@ -11,6 +11,7 @@ from .agents import (
 )
 from .heuristics import (
     TERMINAL_WIN_SCORE,
+    clear_distance_caches,
     evaluate_basic,
     evaluate_tactical,
     evaluate_terminal,
@@ -37,6 +38,7 @@ __all__ = [
     "DAMAGE_PER_HIT",
     "BULLET_SPEED",
     "TERMINAL_WIN_SCORE",
+    "clear_distance_caches",
     "evaluate_terminal",
     "evaluate_basic",
     "evaluate_tactical",

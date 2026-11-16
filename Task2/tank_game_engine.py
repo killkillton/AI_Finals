@@ -5,7 +5,7 @@ Turn-based engine for the 13x13 Tank Battle game.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 GRID_SIZE: int = 13
 
@@ -75,6 +75,7 @@ def canonical_action_rank(player_id: int, action: Action) -> int:
     if player_id == 2:
         return CANONICAL_ACTION_RANK_P2.get(action, 0)
     return CANONICAL_ACTION_RANK.get(action, 0)
+
 
 DIR_DELTAS: Dict[Direction, Tuple[int, int]] = {
     Direction.UP: (0, -1),
@@ -151,9 +152,17 @@ class TankGameEngine:
 
     def __init__(
         self,
+        map_config: Optional[Union[List[List[str]], int]] = None,
         max_turns: int = DEFAULT_MAX_TURNS,
         initial_state: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if isinstance(map_config, int):
+            max_turns = map_config
+            map_config = None
+
+        self.map_config: Optional[List[List[str]]] = (
+            [list(row) for row in map_config] if map_config is not None else None
+        )
         self.grid_size: Tuple[int, int] = (GRID_SIZE, GRID_SIZE)
         self.max_turns: int = max_turns
         self.turn: int = 0
@@ -161,8 +170,9 @@ class TankGameEngine:
         self.bases: Dict[int, Dict[str, Any]] = {}
         self.walls: Dict[Tuple[int, int], int] = {}
         self.bullets: List[Dict[str, Any]] = []
+        self._next_bullet_id: int = 1
         self.is_terminal_flag: bool = False
-        self.winner: Optional[int] = None
+        self.winner: Optional[Union[int, str]] = None
 
         if initial_state is not None:
             self._load_from_dict(initial_state)
@@ -202,9 +212,36 @@ class TankGameEngine:
         }
         self.walls = {(wx, wy): MAX_WALL_HP for wx, wy in DEFAULT_WALL_COORDS}
         self.bullets = []
+        self._next_bullet_id = 1
         self.is_terminal_flag = False
         self.winner = None
+
+        if self.map_config is not None:
+            self._apply_map_config(self.map_config)
+
         return self.get_state()
+
+    def _apply_map_config(self, map_config: List[List[str]]) -> None:
+        """Parse an optional 2D string grid layout into walls, tanks, and bases."""
+        if not map_config or not map_config[0]:
+            return
+        rows = len(map_config)
+        cols = len(map_config[0])
+        self.grid_size = (rows, cols)
+        self.walls.clear()
+        for y, row in enumerate(map_config):
+            for x, cell in enumerate(row):
+                token = str(cell).strip().upper()
+                if token in ("#", "W", "WALL"):
+                    self.walls[(x, y)] = MAX_WALL_HP
+                elif token in ("T1", "P1"):
+                    self.tanks[1]["x"], self.tanks[1]["y"] = x, y
+                elif token in ("T2", "P2"):
+                    self.tanks[2]["x"], self.tanks[2]["y"] = x, y
+                elif token == "B1":
+                    self.bases[1]["x"], self.bases[1]["y"] = x, y
+                elif token == "B2":
+                    self.bases[2]["x"], self.bases[2]["y"] = x, y
 
     def _load_from_dict(self, state: Dict[str, Any]) -> None:
         """Load internal state from a serialized state dictionary."""
@@ -246,11 +283,15 @@ class TankGameEngine:
                 self.walls[(int(w["x"]), int(w["y"]))] = hp
 
         self.bullets = []
+        self._next_bullet_id = 1
         for bul in state.get("bullets", []):
             d_val = bul.get("dir", "UP")
             direction = d_val if isinstance(d_val, Direction) else Direction(str(d_val))
+            bid = int(bul.get("id", self._next_bullet_id))
+            self._next_bullet_id = max(self._next_bullet_id, bid + 1)
             self.bullets.append(
                 {
+                    "id": bid,
                     "x": int(bul["x"]),
                     "y": int(bul["y"]),
                     "dir": direction,
@@ -259,11 +300,13 @@ class TankGameEngine:
             )
 
         self.is_terminal_flag = bool(state.get("is_terminal", False))
-        self.winner = state.get("winner", None)
+        raw_winner = state.get("winner", None)
+        self.winner = "DRAW" if isinstance(raw_winner, str) and raw_winner.upper() == "DRAW" else raw_winner
 
     def clone(self) -> "TankGameEngine":
         """Fast deep copy of the engine for adversarial search tree expansion."""
         cloned = TankGameEngine.__new__(TankGameEngine)
+        cloned.map_config = self.map_config
         cloned.grid_size = self.grid_size
         cloned.max_turns = self.max_turns
         cloned.turn = self.turn
@@ -277,6 +320,7 @@ class TankGameEngine:
         }
         cloned.walls = dict(self.walls)
         cloned.bullets = [dict(b) for b in self.bullets]
+        cloned._next_bullet_id = self._next_bullet_id
         cloned.is_terminal_flag = self.is_terminal_flag
         cloned.winner = self.winner
         return cloned
@@ -312,12 +356,13 @@ class TankGameEngine:
             ],
             "bullets": [
                 {
+                    "id": b.get("id", idx + 1),
+                    "owner": b["owner"],
                     "x": b["x"],
                     "y": b["y"],
                     "dir": b["dir"].value if isinstance(b["dir"], Direction) else str(b["dir"]),
-                    "owner": b["owner"],
                 }
-                for b in self.bullets
+                for idx, b in enumerate(self.bullets)
             ],
             "is_terminal": self.is_terminal_flag,
             "winner": self.winner,
@@ -355,6 +400,24 @@ class TankGameEngine:
     def is_terminal(self) -> bool:
         return self.is_terminal_flag
 
+    def is_cell_walkable(self, x: int, y: int, moving_pid: Optional[int] = None) -> bool:
+        """
+        Return True if cell (x, y) is inside the grid and not blocked by a wall,
+        alive base, or opposing alive tank.
+        """
+        if not (0 <= x < self.grid_size[0] and 0 <= y < self.grid_size[1]):
+            return False
+        if (x, y) in self.walls:
+            return False
+        for b in self.bases.values():
+            if b["alive"] and (b["x"], b["y"]) == (x, y):
+                return False
+        if moving_pid is not None:
+            opp_t = self.tanks.get(3 - moving_pid)
+            if opp_t and opp_t["alive"] and (opp_t["x"], opp_t["y"]) == (x, y):
+                return False
+        return True
+
     def get_legal_actions(self, player_id: int) -> List[Action]:
         """Return legal actions for `player_id` in canonical priority order."""
         t = self.tanks.get(player_id)
@@ -363,13 +426,6 @@ class TankGameEngine:
 
         legal: List[Action] = [Action.FIRE]
         tx, ty = t["x"], t["y"]
-        opp_id = 3 - player_id
-        opp_t = self.tanks[opp_id]
-        opp_pos = (opp_t["x"], opp_t["y"]) if opp_t["alive"] else (-1, -1)
-        base_positions = {
-            (self.bases[1]["x"], self.bases[1]["y"]),
-            (self.bases[2]["x"], self.bases[2]["y"]),
-        }
 
         move_order = (
             (
@@ -390,13 +446,16 @@ class TankGameEngine:
             d = ACTION_TO_DIR[act]
             dx, dy = DIR_DELTAS[d]
             nx, ny = tx + dx, ty + dy
-            if 0 <= nx < self.grid_size[0] and 0 <= ny < self.grid_size[1]:
-                if (
-                    (nx, ny) not in self.walls
-                    and (nx, ny) not in base_positions
-                    and (nx, ny) != opp_pos
-                ):
-                    legal.append(act)
+            if self.is_cell_walkable(nx, ny, player_id):
+                legal.append(act)
+            elif (
+                t["dir"] != d
+                and 0 <= nx < self.grid_size[0]
+                and 0 <= ny < self.grid_size[1]
+                and (nx, ny) in self.walls
+            ):
+                # Allow rotating in-place toward an adjacent destructible wall
+                legal.append(act)
 
         legal.append(Action.STAY)
         return legal
@@ -477,8 +536,11 @@ class TankGameEngine:
         for pid in (1, 2):
             t = self.tanks[pid]
             if t["alive"] and actions[pid] == Action.FIRE:
+                bid = self._next_bullet_id
+                self._next_bullet_id += 1
                 self.bullets.append(
                     {
+                        "id": bid,
                         "x": t["x"],
                         "y": t["y"],
                         "dir": t["dir"],
@@ -605,7 +667,7 @@ class TankGameEngine:
             elif self.bases[2]["hp"] > self.bases[1]["hp"]:
                 self.winner = 2
             else:
-                self.winner = "Draw"
+                self.winner = "DRAW"
             return
 
         if self.turn >= self.max_turns:
@@ -617,7 +679,7 @@ class TankGameEngine:
             elif p2_score > p1_score:
                 self.winner = 2
             else:
-                self.winner = "Draw"
+                self.winner = "DRAW"
 
     def simulate_action(
         self, action_p1: Action | str, action_p2: Action | str
@@ -642,6 +704,8 @@ class TankGameEngine:
             sorted((b["x"], b["y"], b["dir"].value, b["owner"]) for b in self.bullets)
         )
         return (
+            self.turn,
+            self.max_turns,
             turn_player,
             pending_action.value if pending_action is not None else None,
             (t1["x"], t1["y"], t1["dir"].value, t1["hp"]),
@@ -678,7 +742,7 @@ def create_scenario(scenario_name: str = "standard_arena") -> TankGameEngine:
                     {"x": 8, "y": 7, "hp": 3},
                 ],
                 "bullets": [
-                    {"x": 4, "y": 6, "dir": "DOWN", "owner": 2},
+                    {"id": 1, "x": 4, "y": 6, "dir": "DOWN", "owner": 2},
                 ],
                 "is_terminal": False,
                 "winner": None,

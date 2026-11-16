@@ -23,9 +23,11 @@ from Task2.agents import (
     HeuristicMinimaxAgent,
     MinimaxAgent,
 )
+from Task2.heuristics import clear_distance_caches
 from Task2.tank_game_engine import TankGameEngine, create_scenario
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+TASK2_DIR = Path(__file__).resolve().parents[1]
 
 CONFIGURATIONS = [
     ("Minimax Search", MinimaxAgent),
@@ -45,15 +47,19 @@ SCENARIOS = [
 def run_depth_scaling_experiments(
     depths: List[int] = [1, 2, 3, 4],
     scenarios: List[str] = ["standard_arena", "open_duel"],
+    num_trials: int = 3,
 ) -> List[Dict[str, Any]]:
     """
     Evaluates the 4 adversarial search configurations across increasing search depths
-    on identical game scenarios.
+    on identical game scenarios, averaging execution time across `num_trials` runs.
     """
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     rows: List[Dict[str, Any]] = []
+    trials = max(1, int(num_trials))
 
-    print("Depth Scaling Benchmark across 4 Adversarial Search Configurations")
+    print(
+        f"Depth Scaling Benchmark across 4 Adversarial Search Configurations ({trials} trials averaged)"
+    )
     print(
         f"{'Scenario':<18} | {'Depth':>5} | {'Algorithm':<48} | {'Time (ms)':>10} | {'States':>8} | {'Pruning %':>9} | {'TT Hits':>7} | {'Action':<10}"
     )
@@ -61,15 +67,22 @@ def run_depth_scaling_experiments(
     for scenario_name in scenarios:
         for depth in depths:
             for algo_label, agent_cls in CONFIGURATIONS:
-                engine = create_scenario(scenario_name)
-                agent: BaseTankAgent = agent_cls(player_id=1, max_depth=depth)
-                action, metrics = agent.get_action(engine.clone())
+                trial_times: List[float] = []
+                action = None
+                metrics: Dict[str, Any] = {}
+                for _ in range(trials):
+                    clear_distance_caches()
+                    engine = create_scenario(scenario_name)
+                    agent: BaseTankAgent = agent_cls(player_id=1, max_depth=depth)
+                    action, metrics = agent.get_action(engine.clone())
+                    trial_times.append(float(metrics["time_ms"]))
 
+                avg_time_ms = round(sum(trial_times) / len(trial_times), 4)
                 row = {
                     "scenario": scenario_name,
                     "depth": depth,
                     "algorithm": algo_label,
-                    "execution_time_ms": round(metrics["time_ms"], 4),
+                    "execution_time_ms": avg_time_ms,
                     "explored_states": metrics["explored_states"],
                     "pruned_branches": metrics.get("pruned_branches", 0),
                     "pruning_rate_pct": round(metrics.get("pruning_rate", 0.0), 2),
@@ -107,29 +120,43 @@ def run_depth_scaling_experiments(
     return rows
 
 
-def run_scenario_comparison(depth: int = 3) -> List[Dict[str, Any]]:
+def run_scenario_comparison(
+    depth: int = 3,
+    num_trials: int = 3,
+) -> List[Dict[str, Any]]:
     """
-    Compares all 4 configurations across all 4 tactical scenarios at a fixed search depth.
+    Compares all 4 configurations across all 4 tactical scenarios at a fixed search depth,
+    averaging execution time across `num_trials` runs.
     """
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     rows: List[Dict[str, Any]] = []
+    trials = max(1, int(num_trials))
 
-    print(f"\nMulti-Scenario Comparison at Search Depth = {depth}")
+    print(
+        f"\nMulti-Scenario Comparison at Search Depth = {depth} ({trials} trials averaged)"
+    )
     print(
         f"{'Scenario':<18} | {'Algorithm':<48} | {'Time (ms)':>10} | {'States':>8} | {'Pruning %':>9} | {'TT Hits':>7} | {'Action':<10} | {'Score':>9}"
     )
 
     for scenario_name in SCENARIOS:
         for algo_label, agent_cls in CONFIGURATIONS:
-            engine = create_scenario(scenario_name)
-            agent: BaseTankAgent = agent_cls(player_id=1, max_depth=depth)
-            action, metrics = agent.get_action(engine.clone())
+            trial_times: List[float] = []
+            action = None
+            metrics: Dict[str, Any] = {}
+            for _ in range(trials):
+                clear_distance_caches()
+                engine = create_scenario(scenario_name)
+                agent: BaseTankAgent = agent_cls(player_id=1, max_depth=depth)
+                action, metrics = agent.get_action(engine.clone())
+                trial_times.append(float(metrics["time_ms"]))
 
+            avg_time_ms = round(sum(trial_times) / len(trial_times), 4)
             row = {
                 "scenario": scenario_name,
                 "depth": depth,
                 "algorithm": algo_label,
-                "execution_time_ms": round(metrics["time_ms"], 4),
+                "execution_time_ms": avg_time_ms,
                 "explored_states": metrics["explored_states"],
                 "pruned_branches": metrics.get("pruned_branches", 0),
                 "pruning_rate_pct": round(metrics.get("pruning_rate", 0.0), 2),
@@ -196,13 +223,13 @@ def play_match(
 
     state = engine.get_state()
     raw_winner = state["winner"]
-    winner: Any = raw_winner if raw_winner in (1, 2) else "Draw"
+    winner: Any = raw_winner if raw_winner in (1, 2) else "DRAW"
     if winner == 1:
         winner_algo = agent1.ALGORITHM_NAME
     elif winner == 2:
         winner_algo = agent2.ALGORITHM_NAME
     else:
-        winner_algo = "Draw"
+        winner_algo = "DRAW"
 
     return {
         "scenario": scenario_name,
@@ -357,6 +384,61 @@ def run_tournament_experiments(
         )
         writer.writeheader()
         writer.writerows(summary_rows)
+
+    # Also write the consolidated adversarial benchmark CSV per scenario and algorithm
+    adv_rows: List[Dict[str, Any]] = []
+    for scenario_name in SCENARIOS:
+        for algo_label, _ in CONFIGURATIONS:
+            scen_games = 0
+            scen_wins = 0
+            scen_times: List[float] = []
+            scen_states: List[float] = []
+            for m in match_rows:
+                if m["scenario"] != scenario_name:
+                    continue
+                if m["p1_algorithm"] == algo_label:
+                    scen_games += 1
+                    if m["winner"] == 1:
+                        scen_wins += 1
+                    scen_times.append(m["p1_avg_time_ms"])
+                    scen_states.append(m["p1_avg_explored_states"])
+                if m["p2_algorithm"] == algo_label:
+                    scen_games += 1
+                    if m["winner"] == 2:
+                        scen_wins += 1
+                    scen_times.append(m["p2_avg_time_ms"])
+                    scen_states.append(m["p2_avg_explored_states"])
+            adv_rows.append(
+                {
+                    "scenario": scenario_name,
+                    "algorithm": algo_label,
+                    "depth": depth,
+                    "avg_time_ms": round(sum(scen_times) / max(1, len(scen_times)), 4),
+                    "avg_explored_states": round(
+                        sum(scen_states) / max(1, len(scen_states)), 2
+                    ),
+                    "win_rate": round(scen_wins / max(1, scen_games), 4),
+                }
+            )
+
+    for target_csv in (
+        TASK2_DIR / "task2_adversarial_benchmark.csv",
+        RESULTS_DIR / "task2_adversarial_benchmark.csv",
+    ):
+        with target_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "scenario",
+                    "algorithm",
+                    "depth",
+                    "avg_time_ms",
+                    "avg_explored_states",
+                    "win_rate",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(adv_rows)
 
     return match_rows, summary_rows
 
@@ -773,7 +855,7 @@ def build_executed_notebook(
             m["p1_algorithm"] == "Heuristic Minimax Search with Alpha-Beta Pruning"
             or m["p2_algorithm"] == "Heuristic Minimax Search with Alpha-Beta Pruning"
         )
-        and m["winner"] == "Draw"
+        and str(m["winner"]).upper() == "DRAW"
     )
     hab_losses = hab_sum["matches_played"] - hab_sum["wins"] - hab_draws
 
@@ -852,13 +934,17 @@ At the initial state $S_0$ ($t = 0$):
 - $\\text{{ACTIONS}}(s)$ returns the legal discrete actions for the active tank:
 $$\\text{{ACTIONS}}(s) = \\{{\\text{{FIRE}}, \\text{{MOVE\\_UP}}, \\text{{MOVE\\_DOWN}}, \\text{{MOVE\\_LEFT}}, \\text{{MOVE\\_RIGHT}}, \\text{{STAY}}\\}} $$
 
-### 1.3 Transition Model ($\\text{{RESULT}}(s, a)$)
-Given state $s$ and joint actions $(a_1, a_2)$, the deterministic transition model processes one full game cycle in three sequential phases:
+### 1.3 Transition Model ($\\text{{RESULT}}(s, a)$) and Maximin Sequentialization of Simultaneous Cycles
+Given state $s$ and joint actions $(a_1, a_2)$, the deterministic game engine processes one simultaneous game cycle in three phases:
 1. **Tank Movement & Facing Update:** Any tank choosing $\\text{{MOVE\\_}}d$ updates its facing direction to $d$ and advances 1 cell to $(x + \\Delta x_d, y + \\Delta y_d)$ unless blocked by grid boundaries, an alive wall, a base, or the opposing tank.
 2. **Projectile Spawning:** Any alive tank choosing $\\text{{FIRE}}$ spawns a bullet at $(x_p, y_p)$ traveling in direction $d_p$.
 3. **Cell-by-Cell Bullet Propagation (3 Sub-Steps per Cycle):** Active bullets advance 1 cell at a time across 3 sub-steps. At each 1-cell sub-step:
    - Opposing bullets that move into the same open cell or swap cells head-on ($X \\leftrightarrow Y$) collide and cancel each other immediately. If two opposing bullets enter a brick wall cell on the same sub-step, both strike and damage the wall ($HP$ reduced by $1$ per bullet).
    - Any bullet entering a cell with a **Wall**, **Tank**, or **Base** reduces that entity's HP by $1$ and **stops immediately** (removed from the board).
+
+- **Maximin Sequentialization for Deterministic Minimax & Alpha-Beta Search:** Although the external game engine executes $(a_{{\\text{{max}}}}, a_{{\\text{{min}}}})$ simultaneously each cycle via `engine.step(a_1, a_2)`, deterministic Minimax and Alpha-Beta Pruning require an alternating-ply search tree (`MAX` ply followed by `MIN` ply) so that `MAX` maximizes its guaranteed worst-case payoff without assuming knowledge of the opponent's hidden choice:
+$$V(s) = \\max_{{a_{{\\text{{max}}}} \\in \\text{{ACTIONS}}(s, \\text{{MAX}})}} \\; \\min_{{a_{{\\text{{min}}}} \\in \\text{{ACTIONS}}(s, \\text{{MIN}})}} V\\left(\\text{{RESULT}}(s, a_{{\\text{{max}}}}, a_{{\\text{{min}}}})\\right)$$
+Modeling each simultaneous cycle as two sequential plies (`MAX` commits to $a_{{\\text{{max}}}}$, and `MIN` selects the worst-case counter-action $a_{{\\text{{min}}}}$ over all legal opponent moves before `engine.step(a_max, a_min)` resolves the cycle) yields the exact pessimistic maximin security value and enables sound $[\\alpha, \\beta]$ bound cutoffs at every search depth ($d \\in \\{{1, 2, 3, 4\\}}$).
 
 ### 1.4 Terminal Test ($\\text{{TERMINAL-TEST}}(s)$) and Utility Function ($\\text{{UTILITY}}(s, p)$)
 - $\\text{{TERMINAL-TEST}}(s)$ returns `True` when at least one Tank or Base has $HP \\le 0$ (or when the turn limit is reached):

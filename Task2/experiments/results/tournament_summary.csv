@@ -1,5 +1,5 @@
 algorithm,matches_played,wins,win_rate_pct,avg_remaining_tank_hp,avg_remaining_base_hp,avg_turn_time_ms,avg_explored_states
-Minimax Search,24,0,0.0,4.75,1.5,3.4495,195.83
-Alpha-Beta Search,24,0,0.0,4.75,1.5,1.4564,71.9
-Heuristic Minimax Search,24,16,66.67,4.42,6.5,8.8629,204.48
-Heuristic Minimax Search with Alpha-Beta Pruning,24,16,66.67,4.42,6.5,4.3258,53.36
+Minimax Search,24,0,0.0,4.75,1.75,7.9671,212.31
+Alpha-Beta Search,24,0,0.0,4.75,1.75,3.0472,75.97
+Heuristic Minimax Search,24,16,66.67,4.75,2.67,11.6543,218.16
+Heuristic Minimax Search with Alpha-Beta Pruning,24,16,66.67,4.75,2.67,4.8707,55.77
