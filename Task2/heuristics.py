@@ -8,7 +8,7 @@ are strictly zero-sum between Player 1 and Player 2.
 
 from __future__ import annotations
 
-from collections import deque
+import heapq
 from typing import Dict, List, Optional, Tuple
 
 from Task2.tank_game_engine import (
@@ -51,11 +51,12 @@ def evaluate_terminal(
 
 def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
     """
-    Compute a simple Manhattan proximity tie-breaker toward enemy targets.
+    Compute a simple positional and line-of-fire score toward enemy targets.
     """
     opp_id = 3 - player_id
     my_tank = engine.tanks[player_id]
     opp_tank = engine.tanks[opp_id]
+    my_base = engine.bases[player_id]
     opp_base = engine.bases[opp_id]
     if not my_tank["alive"]:
         return -50.0
@@ -65,11 +66,16 @@ def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
     dist_tank = abs(tx - opp_tank["x"]) + abs(ty - opp_tank["y"])
     dist_base = abs(tx - opp_base["x"]) + abs(ty - opp_base["y"])
 
-    clear_tank_los = False
+    score = 0.0
+    # Preserve cardinal friendly base shield walls when in close range
+    for (wx, wy), whp in engine.walls.items():
+        if abs(wx - my_base["x"]) + abs(wy - my_base["y"]) == 1:
+            score += 2.5 * whp
+
     facing_bonus = 0.0
-    for target, bonus, is_tank in (
-        (opp_tank, 0.8, True),
-        (opp_base, 0.4, False),
+    for target, bonus in (
+        (opp_tank, 0.8),
+        (opp_base, 1.5),
     ):
         if tx == target["x"] and ty != target["y"]:
             step = 1 if target["y"] > ty else -1
@@ -77,26 +83,67 @@ def _basic_pos_score(engine: TankGameEngine, player_id: int) -> float:
             walls_between = sum(
                 1 for y in range(ty + step, target["y"], step) if (tx, y) in engine.walls
             )
-            if walls_between == 0:
-                if is_tank:
-                    clear_tank_los = True
-                if t_dir == req_dir:
-                    facing_bonus += bonus
+            if walls_between == 0 and t_dir == req_dir:
+                facing_bonus += bonus
+            elif walls_between == 1 and t_dir == req_dir and abs(ty - target["y"]) <= 2:
+                facing_bonus += bonus * 0.8
         elif ty == target["y"] and tx != target["x"]:
             step = 1 if target["x"] > tx else -1
             req_dir = Direction.RIGHT if step > 0 else Direction.LEFT
             walls_between = sum(
                 1 for x in range(tx + step, target["x"], step) if (x, ty) in engine.walls
             )
-            if walls_between == 0:
-                if is_tank:
-                    clear_tank_los = True
-                if t_dir == req_dir:
-                    facing_bonus += bonus
+            if walls_between == 0 and t_dir == req_dir:
+                facing_bonus += bonus
+            elif walls_between == 1 and t_dir == req_dir and abs(tx - target["x"]) <= 2:
+                facing_bonus += bonus * 0.8
 
-    if clear_tank_los and dist_tank <= 6:
-        return facing_bonus
-    return -(1.2 * dist_tank + 0.4 * dist_base) + facing_bonus
+    # Evaluate active bullets owned by player_id so basic Minimax never fires blindly into walls/borders
+    bullet_bonus = 0.0
+    for b in engine.bullets:
+        if b["owner"] != player_id:
+            continue
+        bx, by = b["x"], b["y"]
+        dx, dy = DIR_DELTAS[b["dir"]]
+        cx, cy = bx, by
+        useful_shot = False
+        for step_idx in range(1, 10):
+            cx += dx
+            cy += dy
+            if not (0 <= cx < GRID_SIZE and 0 <= cy < GRID_SIZE):
+                break
+            if (cx, cy) == (my_base["x"], my_base["y"]):
+                bullet_bonus -= 80.0
+                useful_shot = True
+                break
+            if (cx, cy) in engine.walls:
+                if abs(cx - my_base["x"]) + abs(cy - my_base["y"]) <= 2:
+                    bullet_bonus -= 30.0
+                elif (
+                    abs(cx - opp_base["x"]) + abs(cy - opp_base["y"]) == 1
+                    and step_idx <= 3
+                ):
+                    bullet_bonus += 2.2
+                elif (cx == opp_tank["x"] and bx == opp_tank["x"]) or (
+                    cy == opp_tank["y"] and by == opp_tank["y"]
+                ):
+                    bullet_bonus += 1.0
+                else:
+                    bullet_bonus -= 0.5
+                useful_shot = True
+                break
+            if opp_tank["alive"] and (cx, cy) == (opp_tank["x"], opp_tank["y"]):
+                bullet_bonus += 15.0 if step_idx <= 3 else 4.0
+                useful_shot = True
+                break
+            if opp_base["hp"] > 0 and (cx, cy) == (opp_base["x"], opp_base["y"]):
+                bullet_bonus += 1.2
+                useful_shot = True
+                break
+        if not useful_shot:
+            bullet_bonus -= 0.5
+
+    return score - (1.8 * dist_base + 0.4 * dist_tank) + facing_bonus + bullet_bonus
 
 
 def evaluate_basic(
@@ -146,7 +193,7 @@ def evaluate_tactical(
         _alignment_score_for_player(engine, max_player)
         - _alignment_score_for_player(engine, min_player)
     )
-    w_mobility = 2.0 * (_mobility(engine, t_max) - _mobility(engine, t_min))
+    w_mobility = 0.5 * (_mobility(engine, max_player) - _mobility(engine, min_player))
     w_defense = (
         _base_defense_score(engine, max_player)
         - _base_defense_score(engine, min_player)
@@ -202,6 +249,7 @@ def _bullet_score_for_player(engine: TankGameEngine, pid: int) -> float:
             score += 45.0
             continue
 
+        hit_something_useful = False
         for step_idx in range(1, 10):
             cx += dx
             cy += dy
@@ -212,15 +260,20 @@ def _bullet_score_for_player(engine: TankGameEngine, pid: int) -> float:
                 # Strongly penalize shooting friendly base shield walls
                 if abs(cx - my_base["x"]) + abs(cy - my_base["y"]) <= 2:
                     score -= 60.0
-                elif abs(cx - opp_base["x"]) + abs(cy - opp_base["y"]) <= 2:
-                    score += 10.0
                 elif (
-                    (cx == opp_tank["x"] and cx == my_tank["x"])
-                    or (cy == opp_tank["y"] and cy == my_tank["y"])
-                    or (cx == opp_base["x"] and cx == my_tank["x"])
-                    or (cy == opp_base["y"] and cy == my_tank["y"])
+                    abs(cx - opp_base["x"]) + abs(cy - opp_base["y"]) == 1
+                    and step_idx <= 3
+                ):
+                    score += 18.0
+                elif (
+                    ((cx == opp_tank["x"] and bx == opp_tank["x"])
+                    or (cy == opp_tank["y"] and by == opp_tank["y"]))
+                    and step_idx <= 3
                 ):
                     score += 6.0
+                else:
+                    score -= 0.5
+                hit_something_useful = True
                 break
 
             if opp_tank["alive"] and (cx, cy) == (opp_tank["x"], opp_tank["y"]):
@@ -230,22 +283,28 @@ def _bullet_score_for_player(engine: TankGameEngine, pid: int) -> float:
                 elif cycles_to_hit == 2:
                     score += 95.0
                 else:
-                    score += 45.0
+                    score += 35.0
+                hit_something_useful = True
                 break
 
             if opp_base["hp"] > 0 and (cx, cy) == (opp_base["x"], opp_base["y"]):
                 cycles_to_hit = (step_idx + 2) // 3
                 if cycles_to_hit == 1:
-                    score += 150.0
+                    score += 160.0
                 elif cycles_to_hit == 2:
-                    score += 90.0
+                    score += 85.0
                 else:
-                    score += 45.0
+                    score -= 0.5
+                hit_something_useful = True
                 break
 
             if my_base["hp"] > 0 and (cx, cy) == (my_base["x"], my_base["y"]):
                 score -= 260.0
+                hit_something_useful = True
                 break
+
+        if not hit_something_useful:
+            score -= 0.5
 
     return score
 
@@ -263,6 +322,12 @@ def _evaluate_bullets(engine: TankGameEngine, max_player: int) -> float:
 
 _LANE_CACHE: Dict[Tuple, Dict[Tuple[int, int], float]] = {}
 _CELL_CACHE: Dict[Tuple, Dict[Tuple[int, int], float]] = {}
+
+
+def clear_distance_caches() -> None:
+    """Clear cached Dijkstra distance maps between independent benchmark runs."""
+    _LANE_CACHE.clear()
+    _CELL_CACHE.clear()
 
 
 def _build_lane_distance_map(
@@ -285,28 +350,35 @@ def _build_lane_distance_map(
         cache_dict.clear()
 
     dist_map: Dict[Tuple[int, int], float] = {}
-    queue: deque = deque()
+    heap: List[Tuple[float, int, int]] = []
 
     if seed_lanes:
-        # Seed unobstructed firing lanes up to 6 cells away from target
+        # Seed firing lanes up to 5 cells away from target (allowing at most 1 destructible shield wall)
         for d in Direction:
             dx, dy = DIR_DELTAS[d]
-            for step in range(1, 7):
+            walls_seen = 0
+            wall_hp_seen = 0
+            for step in range(1, 5):
                 sx, sy = target_x + dx * step, target_y + dy * step
                 if not (0 <= sx < GRID_SIZE and 0 <= sy < GRID_SIZE):
                     break
                 if (sx, sy) in engine.walls:
-                    break
-                if (sx, sy) not in dist_map:
-                    dist_map[(sx, sy)] = 0.0
-                    queue.append((sx, sy, 0.0))
+                    walls_seen += 1
+                    wall_hp_seen += engine.walls[(sx, sy)]
+                    if walls_seen > 1:
+                        break
+                    continue
+                lane_seed_cost = 0.8 * wall_hp_seen + 0.55 * step
+                if lane_seed_cost < dist_map.get((sx, sy), 1e9):
+                    dist_map[(sx, sy)] = lane_seed_cost
+                    heapq.heappush(heap, (lane_seed_cost, sx, sy))
 
-    if not queue:
+    if not heap:
         dist_map[(target_x, target_y)] = 0.0
-        queue.append((target_x, target_y, 0.0))
+        heapq.heappush(heap, (0.0, target_x, target_y))
 
-    while queue:
-        cx, cy, cost = queue.popleft()
+    while heap:
+        cost, cx, cy = heapq.heappop(heap)
         if cost > dist_map.get((cx, cy), 1e9):
             continue
         for d in Direction:
@@ -319,10 +391,14 @@ def _build_lane_distance_map(
             new_cost = cost + step_cost
             if new_cost < dist_map.get(nxt, 1e9):
                 dist_map[nxt] = new_cost
-                queue.append((nx, ny, new_cost))
+                heapq.heappush(heap, (new_cost, nx, ny))
 
     cache_dict[cache_key] = dist_map
     return dist_map
+
+
+def cy_check(sy: int) -> bool:
+    return sy < GRID_SIZE
 
 
 def _query_lane_distance(
@@ -360,13 +436,13 @@ def _alignment_score_for_player(engine: TankGameEngine, player_id: int) -> float
         if abs(wx - my_base["x"]) + abs(wy - my_base["y"]) <= 2:
             score += 14.0 * whp
 
-    # 2. Line-of-sight alignment with enemy tank (primary) and enemy base (secondary)
-    tank_vulnerability = 1.0 + 0.15 * max(0, 6 - opp_tank["hp"])
-    base_vulnerability = 1.0 + 0.10 * max(0, 9 - opp_base["hp"])
+    # 2. Line-of-sight alignment with enemy base (primary stationary objective) and enemy tank (secondary)
+    tank_vulnerability = 1.0 + 0.12 * max(0, 6 - opp_tank["hp"])
+    base_vulnerability = 1.0 + 0.15 * max(0, 9 - opp_base["hp"])
 
-    for target, weight in (
-        (opp_tank, 1.85 * tank_vulnerability),
-        (opp_base, 1.20 * base_vulnerability),
+    for target, weight, is_base in (
+        (opp_base, 2.25 * base_vulnerability, True),
+        (opp_tank, 1.15 * tank_vulnerability, False),
     ):
         if tx == target["x"] and ty != target["y"]:
             step = 1 if target["y"] > ty else -1
@@ -378,16 +454,14 @@ def _alignment_score_for_player(engine: TankGameEngine, player_id: int) -> float
                     walls_between += 1
                     wall_hp_between += engine.walls[(tx, y)]
             dist = abs(target["y"] - ty)
-            if walls_between == 0:
-                score += (28.0 - 1.2 * min(dist, 12)) * weight
+            if walls_between == 0 and ((is_base and dist <= 7) or (not is_base and dist <= 4)):
+                score += (28.0 - 1.5 * dist) * weight
                 if t_dir == req_dir:
                     score += 12.0 * weight
-            elif walls_between == 1:
-                score += max(2.0, 14.0 - 0.5 * min(dist, 12) - 2.5 * wall_hp_between) * weight
+            elif walls_between == 1 and is_base and dist <= 7:
+                score += max(6.0, 22.0 - 1.2 * dist - 2.5 * wall_hp_between) * weight
                 if t_dir == req_dir:
-                    score += 4.0 * weight
-            elif walls_between == 2:
-                score += max(0.5, 6.0 - 0.3 * min(dist, 12) - 1.0 * wall_hp_between) * weight
+                    score += 10.0 * weight
 
         elif ty == target["y"] and tx != target["x"]:
             step = 1 if target["x"] > tx else -1
@@ -399,33 +473,31 @@ def _alignment_score_for_player(engine: TankGameEngine, player_id: int) -> float
                     walls_between += 1
                     wall_hp_between += engine.walls[(x, ty)]
             dist = abs(target["x"] - tx)
-            if walls_between == 0:
-                score += (28.0 - 1.2 * min(dist, 12)) * weight
+            if walls_between == 0 and ((is_base and dist <= 7) or (not is_base and dist <= 4)):
+                score += (28.0 - 1.5 * dist) * weight
                 if t_dir == req_dir:
                     score += 12.0 * weight
-            elif walls_between == 1:
-                score += max(2.0, 14.0 - 0.5 * min(dist, 12) - 2.5 * wall_hp_between) * weight
+            elif walls_between == 1 and is_base and dist <= 7:
+                score += max(6.0, 22.0 - 1.2 * dist - 2.5 * wall_hp_between) * weight
                 if t_dir == req_dir:
-                    score += 4.0 * weight
-            elif walls_between == 2:
-                score += max(0.5, 6.0 - 0.3 * min(dist, 12) - 1.0 * wall_hp_between) * weight
+                    score += 10.0 * weight
 
-    # 3. Wall-aware shortest path pursuit toward enemy tank (primary) and enemy base (secondary)
+    # 3. Wall-aware shortest path pursuit toward enemy base firing lanes
     lane_cost_base = _query_lane_distance(
         engine, opp_base["x"], opp_base["y"], tx, ty, seed_lanes=True
     )
-    intercept_x = opp_tank["x"]
-    intercept_y = int(round((2 * opp_tank["y"] + opp_base["y"]) / 3.0))
-    lane_cost_tank = _query_lane_distance(
-        engine, intercept_x, intercept_y, tx, ty, seed_lanes=False
-    )
-    score -= (1.8 * lane_cost_base + 4.2 * lane_cost_tank)
+    score -= 6.5 * lane_cost_base + 0.08 * abs(tx - opp_base["x"])
+    if abs(tx - opp_base["x"]) <= 1 and ty != opp_base["y"]:
+        req_v_dir = Direction.DOWN if opp_base["y"] > ty else Direction.UP
+        if t_dir == req_v_dir:
+            score += 0.15
 
     return score
 
 
-def _mobility(engine: TankGameEngine, tank: Dict) -> int:
-    """Count walkable adjacent cells around `tank`."""
+def _mobility(engine: TankGameEngine, player_id: int) -> int:
+    """Count walkable adjacent cells around `player_id`'s tank."""
+    tank = engine.tanks[player_id]
     if not tank["alive"]:
         return 0
     tx, ty = tank["x"], tank["y"]
@@ -433,7 +505,7 @@ def _mobility(engine: TankGameEngine, tank: Dict) -> int:
     for d in Direction:
         dx, dy = DIR_DELTAS[d]
         nx, ny = tx + dx, ty + dy
-        if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and (nx, ny) not in engine.walls:
+        if engine.is_cell_walkable(nx, ny, player_id):
             free += 1
     return free
 
@@ -456,9 +528,7 @@ def _base_defense_score(engine: TankGameEngine, player_id: int) -> float:
 
     score = 0.0
     if opp_dist_to_my_base <= 5:
-        score -= (6 - opp_dist_to_my_base) * 8.0
-        if my_dist_to_my_base <= opp_dist_to_my_base:
-            score += 12.0
+        score -= (6 - opp_dist_to_my_base) * 4.0
     return score
 
 

@@ -62,7 +62,7 @@ class KakuroCSPTests(unittest.TestCase):
 
         cases = (
             ("board_5x5", (5, 5), 12, expected_5x5_clues),
-            ("board_10x10", (10, 10), 49, expected_10x10_clues),
+            ("board_10x10", (10, 10), 48, expected_10x10_clues),
         )
         for board_id, expected_dims, expected_whites, expected_clues in cases:
             with self.subTest(board_id=board_id):
@@ -221,62 +221,45 @@ class KakuroCSPTests(unittest.TestCase):
     def test_solve_step_by_step_uses_forward_checking_and_ac3_on_every_step(self):
         valid_events = {"SELECT_VAR", "ASSIGN", "PROPAGATE", "CONFLICT", "BACKTRACK", "SOLVED"}
 
-        # 1. 5x5 board solves to completion and calls both forward_check and propagate_ac3 on every assignment
-        csp_5x5 = KakuroCSP("board_5x5")
-        with (
-            patch.object(csp_5x5, "forward_check", wraps=csp_5x5.forward_check) as fc_spy,
-            patch.object(csp_5x5, "propagate_ac3", wraps=csp_5x5.propagate_ac3) as ac3_spy,
-        ):
-            events_5x5 = list(csp_5x5.solve_step_by_step())
-            self.assertEqual(fc_spy.call_count, len(csp_5x5.variables))
-            # 1 initial AC-3 pass + 1 AC-3 pass after each valid assignment
-            self.assertEqual(ac3_spy.call_count, 1 + fc_spy.call_count)
+        for board_id in ("board_5x5", "board_10x10"):
+            with self.subTest(board_id=board_id):
+                csp = KakuroCSP(board_id)
+                with (
+                    patch.object(csp, "forward_check", wraps=csp.forward_check) as fc_spy,
+                    patch.object(csp, "propagate_ac3", wraps=csp.propagate_ac3) as ac3_spy,
+                ):
+                    events = list(csp.solve_step_by_step())
+                    self.assertEqual(fc_spy.call_count, len(csp.variables))
+                    # 1 initial AC-3 pass + 1 AC-3 pass after each valid assignment
+                    self.assertEqual(ac3_spy.call_count, 1 + fc_spy.call_count)
 
-        for ev in events_5x5:
-            self.assertIn(ev["event_type"], valid_events)
-            self.assertEqual(
-                set(ev["stats"].keys()),
-                {"steps", "backtracks", "prunings", "elapsed_ms"},
-            )
-        self.assertEqual(events_5x5[-1]["event_type"], "SOLVED")
-        self.assertTrue(csp_5x5.is_valid_solution(events_5x5[-1]["assignments"]))
-        self.assertEqual(len(events_5x5[-1]["domains"]), 0)
-
-        # 2. Exact PDF 10x10 board is mathematically unsolvable and terminates with CONFLICT
-        csp_10x10 = KakuroCSP("board_10x10")
-        events_10x10 = list(csp_10x10.solve_step_by_step())
-        self.assertGreater(len(events_10x10), 0)
-        self.assertEqual(events_10x10[-1]["event_type"], "CONFLICT")
-        self.assertFalse(csp_10x10.is_valid_solution(events_10x10[-1]["assignments"]))
+                for ev in events:
+                    self.assertIn(ev["event_type"], valid_events)
+                    self.assertEqual(
+                        set(ev["stats"].keys()),
+                        {"steps", "backtracks", "prunings", "elapsed_ms"},
+                    )
+                self.assertEqual(events[-1]["event_type"], "SOLVED")
+                self.assertTrue(csp.is_valid_solution(events[-1]["assignments"]))
+                self.assertEqual(len(events[-1]["domains"]), 0)
 
     def test_frontend_app_integrates_with_real_kakuro_backend(self):
         app = App()
         try:
             app.open_task(2)
-            # 5x5 solves to SOLVED
-            self.assertEqual(app.kakuro.board_id, "board_5x5")
-            app.kakuro_step(instant=True)
-            deadline = time.monotonic() + 5
-            while app.busy and time.monotonic() < deadline:
-                app.receive_jobs()
-                time.sleep(0.005)
-            self.assertFalse(app.busy)
-            self.assertTrue(app.kakuro_done)
-            self.assertEqual(app.kakuro_event["event_type"], "SOLVED")
-            app.draw()
-
-            # 10x10 (exact PDF) detects unsolvability and ends cleanly at CONFLICT
-            app.change_kakuro()
-            self.assertEqual(app.kakuro.board_id, "board_10x10")
-            app.kakuro_step(instant=True)
-            deadline = time.monotonic() + 5
-            while app.busy and time.monotonic() < deadline:
-                app.receive_jobs()
-                time.sleep(0.005)
-            self.assertFalse(app.busy)
-            self.assertTrue(app.kakuro_done)
-            self.assertEqual(app.kakuro_event["event_type"], "CONFLICT")
-            app.draw()
+            for idx, board_id in enumerate(("board_5x5", "board_10x10")):
+                if idx > 0:
+                    app.change_kakuro()
+                self.assertEqual(app.kakuro.board_id, board_id)
+                app.kakuro_step(instant=True)
+                deadline = time.monotonic() + 5
+                while app.busy and time.monotonic() < deadline:
+                    app.receive_jobs()
+                    time.sleep(0.005)
+                self.assertFalse(app.busy)
+                self.assertTrue(app.kakuro_done)
+                self.assertEqual(app.kakuro_event["event_type"], "SOLVED")
+                app.draw()
         finally:
             pygame.quit()
 

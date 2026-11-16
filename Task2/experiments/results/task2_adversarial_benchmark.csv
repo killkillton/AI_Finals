@@ -1,0 +1,17 @@
+scenario,algorithm,depth,avg_time_ms,avg_explored_states,win_rate
+standard_arena,Minimax Search,3,7.9383,200.72,0.0
+standard_arena,Alpha-Beta Search,3,3.0881,69.93,0.0
+standard_arena,Heuristic Minimax Search,3,17.3366,224.94,0.6667
+standard_arena,Heuristic Minimax Search with Alpha-Beta Pruning,3,6.8351,49.65,0.6667
+open_duel,Minimax Search,3,4.4308,233.02,0.0
+open_duel,Alpha-Beta Search,3,2.0411,89.46,0.0
+open_duel,Heuristic Minimax Search,3,9.5774,233.6,0.6667
+open_duel,Heuristic Minimax Search with Alpha-Beta Pruning,3,3.2524,63.08,0.6667
+base_siege,Minimax Search,3,6.9242,201.54,0.0
+base_siege,Alpha-Beta Search,3,2.3611,82.58,0.0
+base_siege,Heuristic Minimax Search,3,7.6956,188.67,0.6667
+base_siege,Heuristic Minimax Search with Alpha-Beta Pruning,3,3.0776,50.73,0.6667
+corridor_skirmish,Minimax Search,3,12.5751,213.95,0.0
+corridor_skirmish,Alpha-Beta Search,3,4.6985,61.9,0.0
+corridor_skirmish,Heuristic Minimax Search,3,12.0077,225.42,0.6667
+corridor_skirmish,Heuristic Minimax Search with Alpha-Beta Pruning,3,6.3175,59.63,0.6667

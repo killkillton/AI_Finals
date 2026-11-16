@@ -42,6 +42,8 @@ from Task2.tank_game_engine import (
 from frontend.app import App
 from frontend.backends import Backends
 
+TASK2_DIR = Path(__file__).resolve().parent.parent / "Task2"
+
 
 class Task2EngineAndSearchTests(unittest.TestCase):
     """Unit and integration tests for Task 2: Adversarial Search (Tank Battle Game)."""
@@ -65,6 +67,21 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertEqual(len(state["walls"]), 37)
         for wall in state["walls"]:
             self.assertEqual(wall["hp"], 3)
+
+    def test_map_config_and_contract_state_schema(self):
+        custom_map = [
+            [".", "B2", "."],
+            ["T1", "#", "T2"],
+            [".", "B1", "."],
+        ]
+        eng = TankGameEngine(map_config=custom_map)
+        state = eng.get_state()
+        self.assertEqual(state["grid_size"], (3, 3))
+        self.assertEqual((state["tanks"][1]["x"], state["tanks"][1]["y"]), (0, 1))
+        self.assertEqual((state["tanks"][2]["x"], state["tanks"][2]["y"]), (2, 1))
+        self.assertEqual((state["bases"][1]["x"], state["bases"][1]["y"]), (1, 2))
+        self.assertEqual((state["bases"][2]["x"], state["bases"][2]["y"]), (1, 0))
+        self.assertEqual(state["walls"], [{"x": 1, "y": 1, "hp": 3}])
 
     def test_formal_game_interface_methods(self):
         engine = TankGameEngine()
@@ -149,6 +166,8 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         # Next shot travels unobstructed 3 cells from (2, 8) to (2, 5)
         state, sub_ticks = engine.step(Action.FIRE, Action.STAY)
         self.assertEqual(len(state["bullets"]), 1)
+        self.assertIn("id", state["bullets"][0])
+        self.assertIsInstance(state["bullets"][0]["id"], int)
         self.assertEqual((state["bullets"][0]["x"], state["bullets"][0]["y"]), (2, 5))
         self.assertEqual(len(sub_ticks), 2)
         self.assertEqual((sub_ticks[0]["bullets"][0]["x"], sub_ticks[0]["bullets"][0]["y"]), (2, 7))
@@ -182,7 +201,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertEqual(engine.walls.get((6, 6)), 1)
 
         # Next shot destroys (6, 6) completely
-        state2, _ = engine.step(Action.FIRE, Action.STAY)
+        engine.step(Action.FIRE, Action.STAY)
         self.assertNotIn((6, 6), engine.walls)
 
     def test_terminal_condition_when_tank_or_base_destroyed(self):
@@ -235,6 +254,30 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertEqual(state_base["winner"], 2)
         self.assertEqual(state_base["bases"][1]["hp"], 0)
         self.assertFalse(state_base["bases"][1]["alive"])
+
+        # 3. Simultaneous destruction with equal HP produces uppercase "DRAW"
+        engine_draw = TankGameEngine(
+            max_turns=1,
+            initial_state={
+                "turn": 0,
+                "grid_size": (13, 13),
+                "tanks": {
+                    1: {"x": 2, "y": 10, "dir": "UP", "hp": 6, "alive": True},
+                    2: {"x": 10, "y": 2, "dir": "DOWN", "hp": 6, "alive": True},
+                },
+                "bases": {
+                    1: {"x": 6, "y": 12, "hp": 9, "alive": True},
+                    2: {"x": 6, "y": 0, "hp": 9, "alive": True},
+                },
+                "walls": [],
+                "bullets": [],
+                "is_terminal": False,
+                "winner": None,
+            },
+        )
+        state_draw, _ = engine_draw.step(Action.STAY, Action.STAY)
+        self.assertTrue(state_draw["is_terminal"])
+        self.assertEqual(state_draw["winner"], "DRAW")
 
     def test_clone_isolation(self):
         engine = TankGameEngine()
@@ -314,6 +357,9 @@ class Task2EngineAndSearchTests(unittest.TestCase):
                 act_mm, met_mm = mm.get_action(engine.clone())
                 act_ab, met_ab = ab.get_action(engine.clone())
 
+                self.assertIn("eval_score", met_mm)
+                self.assertIn("eval_score", met_ab)
+                self.assertEqual(met_mm["eval_score"], met_ab["eval_score"])
                 self.assertEqual(met_mm["best_score"], met_ab["best_score"])
                 self.assertEqual(act_mm, act_ab)
                 self.assertLess(met_ab["explored_states"], met_mm["explored_states"])
@@ -324,6 +370,9 @@ class Task2EngineAndSearchTests(unittest.TestCase):
                 act_hmm, met_hmm = hmm.get_action(engine.clone())
                 act_hab, met_hab = hab.get_action(engine.clone())
 
+                self.assertIn("eval_score", met_hmm)
+                self.assertIn("eval_score", met_hab)
+                self.assertEqual(met_hmm["eval_score"], met_hab["eval_score"])
                 self.assertEqual(met_hmm["best_score"], met_hab["best_score"])
                 self.assertEqual(act_hmm, act_hab)
                 self.assertLess(met_hab["explored_states"], met_hmm["explored_states"])
@@ -486,7 +535,6 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertLess(sum(live_engine.walls.values()), initial_wall_hp)
 
     def test_academic_integrity_and_pure_ascii_compliance(self):
-        task2_dir = Path(__file__).resolve().parent.parent
         forbidden_substrings = (
             "Slide 4",
             "Slide 6",
@@ -519,7 +567,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
             "\u2212",
             "\u2026",
         )
-        for path in task2_dir.rglob("*"):
+        for path in TASK2_DIR.rglob("*"):
             if path.is_file() and path.suffix in (".py", ".ipynb"):
                 if path.name == "test_task2.py":
                     continue
@@ -532,7 +580,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
                     )
 
     def test_external_bot_loader_and_registry(self):
-        bot_path = Path(__file__).resolve().parent.parent / "external_bots" / "sample_group_bot.py"
+        bot_path = TASK2_DIR / "external_bots" / "sample_group_bot.py"
         loaded = load_external_agent(bot_path)
         self.assertIn("ExternalGroupBot", loaded)
         bot = loaded["ExternalGroupBot"](player_id=2, max_depth=2)
@@ -540,6 +588,23 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         self.assertIsInstance(act, Action)
         self.assertIn("time_ms", metrics)
         self.assertIn("explored_states", metrics)
+        self.assertEqual(metrics["explored_states"], 36)
+        self.assertIn("depth_reached", metrics)
+        self.assertIn("eval_score", metrics)
+
+        # Verify state_key includes turn and max_turns, and depth_reached is 0 on terminal states
+        e1 = TankGameEngine()
+        e2 = e1.clone()
+        e2.turn = 10
+        self.assertNotEqual(e1.state_key(1), e2.state_key(1))
+
+        term_eng = TankGameEngine()
+        term_eng.is_terminal_flag = True
+        term_eng.winner = 1
+        for cls in (MinimaxAgent, AlphaBetaAgent, HeuristicMinimaxAgent, HeuristicAlphaBetaAgent):
+            ag = cls(player_id=1, max_depth=3)
+            _, term_metrics = ag.get_action(term_eng.clone())
+            self.assertEqual(term_metrics["depth_reached"], 0)
 
         for name in ("Minimax", "Alpha-Beta", "Heuristic Minimax", "Heuristic Alpha-Beta"):
             agent = get_agent_by_name(name, player_id=1, max_depth=2)
@@ -586,7 +651,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
             self.assertEqual(app.tank_state["turn"], 1)
 
             # Test importing external student group bot via UI hook
-            bot_path = Path(__file__).resolve().parent.parent / "external_bots" / "sample_group_bot.py"
+            bot_path = TASK2_DIR / "external_bots" / "sample_group_bot.py"
             app.import_bot(str(bot_path))
             self.assertIn("ExternalGroupBot", app.backends.agents)
         finally:
@@ -596,9 +661,9 @@ class Task2EngineAndSearchTests(unittest.TestCase):
         import csv
         import json
 
-        task2_dir = Path(__file__).resolve().parent.parent
-        results_dir = task2_dir / "experiments" / "results"
+        results_dir = TASK2_DIR / "experiments" / "results"
         expected_csvs = [
+            "task2_adversarial_benchmark.csv",
             "search_performance_by_depth.csv",
             "scenario_comparison_depth3.csv",
             "tournament_matchups.csv",
@@ -611,6 +676,15 @@ class Task2EngineAndSearchTests(unittest.TestCase):
                 rows = list(csv.DictReader(f))
                 self.assertGreater(len(rows), 0)
 
+        root_adv_csv = TASK2_DIR / "task2_adversarial_benchmark.csv"
+        self.assertTrue(root_adv_csv.is_file())
+        with root_adv_csv.open(newline="", encoding="utf-8") as f:
+            adv_rows = list(csv.DictReader(f))
+            self.assertEqual(
+                set(adv_rows[0].keys()),
+                {"scenario", "algorithm", "depth", "avg_time_ms", "avg_explored_states", "win_rate"},
+            )
+
         expected_pngs = [
             "execution_time_comparison.png",
             "explored_states_and_pruning.png",
@@ -621,7 +695,7 @@ class Task2EngineAndSearchTests(unittest.TestCase):
             self.assertTrue(path.is_file(), f"Missing benchmark chart: {path}")
             self.assertGreater(path.stat().st_size, 1000)
 
-        nb_path = task2_dir / "Task2_Experiments_and_Formulation.ipynb"
+        nb_path = TASK2_DIR / "Task2_Experiments_and_Formulation.ipynb"
         self.assertTrue(nb_path.is_file(), "Missing executed Jupyter Notebook")
         nb_data = json.loads(nb_path.read_text(encoding="utf-8"))
         self.assertEqual(nb_data.get("nbformat"), 4)
