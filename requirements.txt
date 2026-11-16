@@ -1,2 +1,6 @@
+ipython>=8.20,<10
+jupyter>=1.0,<2
+matplotlib>=3.10,<4
+pandas>=2.0,<3
 pygame>=2.6,<3
 python-sat>=1.8.dev13
